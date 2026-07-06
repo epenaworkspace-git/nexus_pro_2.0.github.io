@@ -4340,6 +4340,110 @@ async function callClaude(prompt,maxTokens=1200){
   return callAIConFallback(prompt,maxTokens);
 }
 
+// ─── Orquestador multi-proveedor para CHAT (system + historial de mensajes) ────
+// Usado por los paneles de chat (Coach IE, PNL, Presentación/Cierre, Asistente
+// global) para que TODOS respeten el proveedor configurado, no solo Claude.
+async function callClaudeChat(opts){
+  const system=opts.system, messages=opts.messages, maxTokens=opts.maxTokens||800;
+  for(const model of CLAUDE_MODELS){
+    let r;
+    try{
+      r=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',headers:getHeaders(),
+        body:JSON.stringify({model,max_tokens:maxTokens,system,messages})
+      });
+    }catch(e){ return {error:'NETWORK',message:e.message}; }
+    if(r.status===404) continue;
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      if(r.status===401||r.status===403) return {error:'INVALID_KEY',message:e?.error?.message||'Clave inválida'};
+      return {error:`HTTP_${r.status}`,message:e?.error?.message||`HTTP ${r.status}`};
+    }
+    const data=await r.json();
+    const tb=(data.content||[]).find(b=>b.type==='text');
+    if(!tb) return {error:'EMPTY',message:'Respuesta vacía'};
+    return {ok:true,text:tb.text,label:'Claude'};
+  }
+  return {error:'NO_MODEL',message:'Ningún modelo de Claude disponible'};
+}
+async function callGeminiChat(opts){
+  const system=opts.system, messages=opts.messages, maxTokens=opts.maxTokens||800;
+  if(!userGeminiKey) return {error:'NO_KEY',message:'Falta API key de Gemini'};
+  const contents=messages.map(function(m){ return {role:m.role==='assistant'?'model':'user',parts:[{text:m.content}]}; });
+  for(const model of GEMINI_MODELS){
+    let r;
+    try{
+      const body={contents,generationConfig:{maxOutputTokens:maxTokens}};
+      if(system) body.systemInstruction={parts:[{text:system}]};
+      r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
+        method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':userGeminiKey},
+        body:JSON.stringify(body)
+      });
+    }catch(e){ return {error:'NETWORK',message:e.message}; }
+    if(r.status===404) continue;
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      const msg=e?.error?.message||`HTTP ${r.status}`;
+      if(r.status===401||r.status===403) return {error:'INVALID_KEY',message:msg};
+      return {error:`HTTP_${r.status}`,message:msg};
+    }
+    const data=await r.json();
+    const text=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if(!text) return {error:'EMPTY',message:'Respuesta vacía'};
+    return {ok:true,text,label:'Gemini'};
+  }
+  return {error:'NO_MODEL',message:'Ningún modelo de Gemini disponible'};
+}
+async function callOpenAICompatibleChat(opts){
+  const system=opts.system, messages=opts.messages, maxTokens=opts.maxTokens, apiKey=opts.apiKey, models=opts.models, endpoint=opts.endpoint, label=opts.label;
+  if(!apiKey) return {error:'NO_KEY',message:`Falta API key de ${label}`};
+  const msgs=system?[{role:'system',content:system}].concat(messages):messages;
+  for(const model of models){
+    let r;
+    try{
+      r=await fetch(endpoint,{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+        body:JSON.stringify({model,max_tokens:maxTokens,messages:msgs})
+      });
+    }catch(e){ return {error:'NETWORK',message:e.message}; }
+    if(r.status===404) continue;
+    if(!r.ok){
+      const e=await r.json().catch(()=>({}));
+      const msg=e?.error?.message||`HTTP ${r.status}`;
+      if(r.status===401||r.status===403) return {error:'INVALID_KEY',message:msg};
+      return {error:`HTTP_${r.status}`,message:msg};
+    }
+    const data=await r.json();
+    const text=data?.choices?.[0]?.message?.content;
+    if(!text) return {error:'EMPTY',message:'Respuesta vacía'};
+    return {ok:true,text,label};
+  }
+  return {error:'NO_MODEL',message:`Ningún modelo de ${label} disponible`};
+}
+function callChatGPTChat(opts){ return callOpenAICompatibleChat(Object.assign({},opts,{apiKey:userChatgptKey,models:CHATGPT_MODELS,endpoint:'https://api.openai.com/v1/chat/completions',label:'ChatGPT'})); }
+function callGrokChat(opts){ return callOpenAICompatibleChat(Object.assign({},opts,{apiKey:userGrokKey,models:GROK_MODELS,endpoint:'https://api.x.ai/v1/chat/completions',label:'Grok'})); }
+
+// Prueba Claude primero (funciona sin key dentro de Claude.ai vía proxy), luego
+// Gemini/ChatGPT/Grok solo si el usuario configuró su clave — cada uno con SU
+// propio formato de autenticación (nunca exige x-api-key a quien no lo necesita).
+async function callAIChatConFallback(opts){
+  const system=opts.system, messages=opts.messages, maxTokens=opts.maxTokens||800;
+  const providers=[{label:'Claude',fn:function(){return callClaudeChat({system:system,messages:messages,maxTokens:maxTokens});}}];
+  if(userGeminiKey)  providers.push({label:'Gemini', fn:function(){return callGeminiChat({system:system,messages:messages,maxTokens:maxTokens});}});
+  if(userChatgptKey) providers.push({label:'ChatGPT',fn:function(){return callChatGPTChat({system:system,messages:messages,maxTokens:maxTokens});}});
+  if(userGrokKey)    providers.push({label:'Grok',   fn:function(){return callGrokChat({system:system,messages:messages,maxTokens:maxTokens});}});
+  let lastErr=null;
+  for(const p of providers){
+    try{
+      const r=await p.fn();
+      if(r&&r.ok){ lastAIProviderUsed=r.label||p.label; return r; }
+      lastErr=new Error((r&&r.message)||`Fallo en ${p.label}`);
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('Todos los proveedores de IA fallaron. Configura al menos una API key en Configuración.');
+}
+
 // ─── Theme ───────────────────────────────────────────────────────────────────
 async function initTheme(){
   let s='dark';
@@ -6850,14 +6954,7 @@ async function callClaudeAnalysis(text){
   }
 }
 Texto: """${text}"""`;
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:getHeaders(),body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:10000,messages:[{role:'user',content:prompt}]})});
-  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e?.error?.message||`HTTP ${r.status}`);}
-  const data=await r.json();
-  const tb=data.content.find(b=>b.type==='text');if(!tb)throw new Error('empty');
-  let clean=tb.text.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-  const fi=clean.indexOf('{'),la=clean.lastIndexOf('}');
-  if(fi!==-1&&la!==-1)clean=clean.slice(fi,la+1);
-  return JSON.parse(clean);
+  return callAIConFallback(prompt,10000);
 }
 
 document.getElementById('analyzeBtn').addEventListener('click',async()=>{
@@ -7455,22 +7552,15 @@ ${analysisCtx}`;
   // Build messages including history (max last 8 turns)
   const historySlice=proChatHistory.slice(-8);
   const messages=[
-    {role:'user',content:systemPrompt+'\n\n---\n\nPregunta del usuario: '+historySlice[0].content}
+    {role:'user',content:historySlice[0].content}
   ];
   for(let i=1;i<historySlice.length;i++){
     messages.push({role:historySlice[i].role==='user'?'user':'assistant',content:historySlice[i].content});
   }
 
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:getHeaders(),
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,messages})
-    });
-    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e?.error?.message||`HTTP ${r.status}`);}
-    const data=await r.json();
-    const tb=data.content.find(b=>b.type==='text');
-    const reply=tb?tb.text.trim():'Sin respuesta';
+    const r=await callAIChatConFallback({system:systemPrompt,messages,maxTokens:1200});
+    const reply=(r.text||'Sin respuesta').trim();
     proChatHistory.push({role:'assistant',content:reply});
   }catch(e){
     proChatHistory.push({role:'assistant',content:'❌ Error: '+e.message});
@@ -8424,9 +8514,9 @@ function renderLegibilidad(){ const d=currentData; if(!d||!d.ai||!d.ai.legibilid
 
 function renderSentimiento(){ const d=currentData; if(!d||!d.ai||!d.ai.sentimiento) return`<div class="card"><div class="empty-state">⚠️ Analiza un texto primero.</div></div>`; const s=d.ai.sentimiento; const pillC=s.etiqueta==='Positive'?'pos':(s.etiqueta==='Negative'?'neg':'neu'); const cc=s.etiqueta==='Positive'?'var(--green)':(s.etiqueta==='Negative'?'var(--red)':'#F59E0B'); const flow=s.flujo;const W=280,H=110; const stepX=W/(flow.length-1||1); const pts=flow.map((v,i)=>[i*stepX,H-((v+100)/200)*H]); const path=pts.map((p,i)=>(i===0?'M':'L')+p[0].toFixed(1)+' '+p[1].toFixed(1)).join(' '); const area=path+` L ${pts[pts.length-1][0]} ${H} L 0 ${H} Z`; return `${statBlock()}<div class="card"><h2>Puntuación de sentimiento</h2><div class="score-row"><div class="score-circle" style="border-color:${cc};"><div class="big" style="color:${cc};">${s.score.toFixed(0)}%</div><div class="sub">${s.etiqueta}</div></div><div class="score-info"><div class="pill ${pillC}" style="margin-bottom:10px;"><span class="dot"></span>${s.etiqueta}</div><div style="font-size:14px;color:var(--muted);line-height:1.5;">${d.ai.resumen}</div></div></div><div class="bar-row"><div class="bar-top"><span>Positivo</span><span>${s.positivo_pct}%</span></div><div class="bar-bg"><div class="bar-fill pos" style="width:${s.positivo_pct}%;"></div></div></div><div class="bar-row"><div class="bar-top"><span>Neutral</span><span>${s.neutral_pct}%</span></div><div class="bar-bg"><div class="bar-fill neu" style="width:${s.neutral_pct}%;"></div></div></div><div class="bar-row"><div class="bar-top"><span>Negativo</span><span>${s.negativo_pct}%</span></div><div class="bar-bg"><div class="bar-fill neg" style="width:${s.negativo_pct}%;"></div></div></div></div><div class="card"><div class="mini-grid"><div class="mini-box"><div class="lbl">Tendencia</div><div class="val sm">${s.tendencia}</div></div><div class="mini-box"><div class="lbl">Intensidad</div><div class="val">${s.intensidad_pct}%</div></div></div></div><div class="card"><h2>Flujo de sentimiento</h2><svg class="flow-svg" viewBox="0 0 280 110"><path d="${area}" fill="rgba(143,174,107,0.15)" style="opacity:0;animation:fadeUp .6s ease .5s forwards;"/><path d="${path}" fill="none" stroke="var(--gold)" stroke-width="2" class="draw"/>${pts.map((p,i)=>`<circle cx="${p[0]}" cy="${p[1]}" r="3" fill="var(--green)" style="animation:popIn .35s cubic-bezier(.34,1.56,.64,1) ${(0.6+i*0.05).toFixed(2)}s both;"/>`).join('')}</svg></div><div class="card"><h2>Temas clave</h2><div class="topic-tags">${s.temas_clave.map(tp=>`<div class="topic-tag">${tp}</div>`).join('')}</div></div>`; }
 
-async function loadAdvanced(){ const text=inputText.value.trim(); if(!text||advLoading)return; advLoading=true; document.getElementById('results').innerHTML=`<div class="card"><div class="loading-box"><div class="spinner"></div><p>Analizando…</p></div></div>`; const langName=getOutputLangName(); const prompt=`Analiza el texto y devuelve SOLO JSON sin markdown:\n{"keywords":[{"word":"keyword","score":1-10,"category":"topic|entity|concept|action"}],"passive_sentences":[{"original":"oración pasiva exacta","active":"versión activa"}]}\nExtrae 8-15 keywords. Detecta todas las oraciones en voz pasiva. Respuestas en ${langName}.\nTexto: """${text}"""`; try{ const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:getHeaders(),body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:3000,messages:[{role:'user',content:prompt}]})}); if(!r.ok)throw new Error(''); const data=await r.json(); const tb=data.content.find(b=>b.type==='text'); if(!tb)throw new Error(''); let clean=tb.text.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim(); advData=JSON.parse(clean); }catch(e){advData={keywords:[],passive_sentences:[],error:true};} finally{advLoading=false;document.getElementById('results').innerHTML=renderAvanzadoHtml()+renderProChat();attachAvanzadoHandlers();attachProChatHandlers();} }
+async function loadAdvanced(){ const text=inputText.value.trim(); if(!text||advLoading)return; advLoading=true; document.getElementById('results').innerHTML=`<div class="card"><div class="loading-box"><div class="spinner"></div><p>Analizando…</p></div></div>`; const langName=getOutputLangName(); const prompt=`Analiza el texto y devuelve SOLO JSON sin markdown:\n{"keywords":[{"word":"keyword","score":1-10,"category":"topic|entity|concept|action"}],"passive_sentences":[{"original":"oración pasiva exacta","active":"versión activa"}]}\nExtrae 8-15 keywords. Detecta todas las oraciones en voz pasiva. Respuestas en ${langName}.\nTexto: """${text}"""`; try{ advData=await callAIConFallback(prompt,3000); }catch(e){advData={keywords:[],passive_sentences:[],error:true};} finally{advLoading=false;document.getElementById('results').innerHTML=renderAvanzadoHtml()+renderProChat();attachAvanzadoHandlers();attachProChatHandlers();} }
 
-async function convertPassive(){ const text=inputText.value.trim(); if(!text)return; const btn=document.getElementById('convertPassiveBtn'); btn.textContent='Convirtiendo…';btn.disabled=true; const langName=getOutputLangName(); const detected=(advData&&advData.passive_sentences)||[]; const detectedList=detected.length?detected.map(function(p,i){return(i+1)+'. "'+p.original+'"';}).join('\n'):''; const prompt=`Reescribe el texto completo convirtiendo TODAS las oraciones en voz pasiva a voz activa, manteniendo tono e idioma. No omitas ninguna parte del texto original: el resultado debe tener la misma longitud e información, solo con las oraciones pasivas corregidas.\n${detectedList?'Estas oraciones pasivas ya fueron detectadas previamente y DEBEN quedar en voz activa en el resultado final:\n'+detectedList+'\n':''}\nDevuelve SOLO este JSON, sin texto adicional ni markdown:\n{"texto_mejorado":"texto completo reescrito, mismo largo aproximado que el original","cambios":["cambios en ${langName}"]}\nTexto original: """${text}"""`; try{ const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:getHeaders(),body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:4000,messages:[{role:'user',content:prompt}]})}); if(!r.ok)throw new Error(''); const data=await r.json(); const tb=data.content.find(b=>b.type==='text'); if(!tb)throw new Error(''); let clean=tb.text.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim(); const parsed=JSON.parse(clean); if(!parsed||!parsed.texto_mejorado)throw new Error(''); passiveConverted=parsed; }catch(e){passiveConverted={texto_mejorado:text,cambios:['⚠️ No se pudo completar la conversión automática (respuesta incompleta). Se muestra tu texto original sin cambios — intenta de nuevo.'],error:true}; } finally{document.getElementById('results').innerHTML=renderAvanzadoHtml();attachAvanzadoHandlers();} }
+async function convertPassive(){ const text=inputText.value.trim(); if(!text)return; const btn=document.getElementById('convertPassiveBtn'); btn.textContent='Convirtiendo…';btn.disabled=true; const langName=getOutputLangName(); const detected=(advData&&advData.passive_sentences)||[]; const detectedList=detected.length?detected.map(function(p,i){return(i+1)+'. "'+p.original+'"';}).join('\n'):''; const prompt=`Reescribe el texto completo convirtiendo TODAS las oraciones en voz pasiva a voz activa, manteniendo tono e idioma. No omitas ninguna parte del texto original: el resultado debe tener la misma longitud e información, solo con las oraciones pasivas corregidas.\n${detectedList?'Estas oraciones pasivas ya fueron detectadas previamente y DEBEN quedar en voz activa en el resultado final:\n'+detectedList+'\n':''}\nDevuelve SOLO este JSON, sin texto adicional ni markdown:\n{"texto_mejorado":"texto completo reescrito, mismo largo aproximado que el original","cambios":["cambios en ${langName}"]}\nTexto original: """${text}"""`; try{ const parsed=await callAIConFallback(prompt,4000); if(!parsed||!parsed.texto_mejorado)throw new Error(''); passiveConverted=parsed; }catch(e){passiveConverted={texto_mejorado:text,cambios:['⚠️ No se pudo completar la conversión automática (respuesta incompleta). Se muestra tu texto original sin cambios — intenta de nuevo.'],error:true}; } finally{document.getElementById('results').innerHTML=renderAvanzadoHtml();attachAvanzadoHandlers();} }
 
 function renderPassiveCards(ps){ if(!ps||ps.length===0)return`<div class="passive-no-issues"><div class="check-icon">✅</div><div><div class="check-text">¡Sin voz pasiva detectada!</div><div class="check-sub">Tu texto usa voz activa correctamente.</div></div></div>`; const cards=ps.map((p,i)=>`<div class="passive-card" id="pc_${i}"><div class="passive-header" data-idx="${i}"><span class="passive-badge">⚠️ Pasiva</span><span class="passive-sentence-preview">${escHtml(p.original.slice(0,60)+(p.original.length>60?'…':''))}</span><span class="passive-toggle">▼</span></div><div class="passive-body"><div class="passive-label"><span class="label-icon">🔴</span>Original (pasiva)</div><div class="passive-original-text">${escHtml(p.original)}</div><div class="passive-label"><span class="label-icon">🟢</span>Versión activa</div><div class="passive-active-text">✅ ${escHtml(p.active)}</div><div class="passive-action-row"><button class="passive-copy-btn" data-text="${escAttr(p.active)}" id="pcopy_${i}">📋 Copiar versión activa</button></div></div></div>`).join(''); return`<div class="passive-count-row"><div class="passive-count-icon">⚠️</div><div class="passive-count-info"><div class="passive-count-num">${ps.length}</div><div class="passive-count-label">oraciones en voz pasiva</div></div></div>${cards}<button class="analyze-btn" id="convertPassiveBtn" style="margin-top:8px;">✨ Convertir todo a voz activa</button>`; }
 
@@ -8524,15 +8614,8 @@ Lista concreta de acciones a ejecutar, en orden de prioridad.
 Sé directo, específico y práctico. No uses frases genéricas. Basa cada afirmación en los datos reales del análisis. IMPORTANTE: completa TODAS las secciones sin excepción — nunca cortes el informe a la mitad ni lo dejes incompleto. Si el espacio es limitado, reduce el detalle de cada sección pero asegúrate de que todas aparezcan y tengan cierre.`;
 
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:getHeaders(),
-      body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:4000,messages:[{role:'user',content:prompt}]})
-    });
-    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e?.error?.message||`HTTP ${r.status}`);}
-    const data=await r.json();
-    const tb=data.content.find(b=>b.type==='text');
-    proReportText=tb?tb.text.trim():'Sin respuesta';
+    const r=await callAIChatConFallback({messages:[{role:'user',content:prompt}],maxTokens:4000});
+    proReportText=(r.text||'Sin respuesta').trim();
   }catch(e){
     proReportText='❌ Error al generar el informe: '+e.message;
   }finally{
@@ -8549,11 +8632,8 @@ async function summarizeProReport(){
   const langName=getOutputLangName();
   const prompt=`Eres un asistente experto. A continuación tienes un informe ejecutivo de análisis de texto. Genera un RESUMEN CONCISO en ${langName} con los puntos más importantes: conclusiones clave, alertas principales y próximos pasos prioritarios. Sé directo y breve (máximo 30% de la longitud original). Usa el mismo formato de secciones con ## encabezados y viñetas.\n\nINFORME ORIGINAL:\n${proReportText}`;
   try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:getHeaders(),body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1500,messages:[{role:'user',content:prompt}]})});
-    if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e?.error?.message||`HTTP ${r.status}`);}
-    const data=await r.json();
-    const tb=data.content.find(b=>b.type==='text');
-    const summaryText=tb?tb.text.trim():'Sin respuesta';
+    const r=await callAIChatConFallback({messages:[{role:'user',content:prompt}],maxTokens:1500});
+    const summaryText=(r.text||'Sin respuesta').trim();
     const body=document.getElementById('proReportBody');
     if(body){
       body.innerHTML='<div style="background:var(--purple-dim);border:1px solid rgba(0,245,196,0.25);border-radius:10px;padding:12px 14px;margin-bottom:12px;font-size:12px;color:var(--purple-bright);display:flex;align-items:center;gap:7px;"><span>✦</span><span>Resumen generado — <button id="proSumRestoreBtn" style="background:none;border:none;color:var(--gold);cursor:pointer;font-size:12px;text-decoration:underline;padding:0;">Ver informe completo</button></span></div>'+formatProReport(summaryText);
@@ -9573,20 +9653,8 @@ ${datos.tipoOp === 'auto' && datos.hizoPrueba > 0 ? `- Prueba de manejo: ${datos
 Responde de forma directa, concreta y accionable en español. Máximo 120 palabras. Da consejos específicos para esta situación.`;
 
   try {
-    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: contexto,
-        messages: [{ role: 'user', content: msg }]
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
-    const respuesta = data.content?.[0]?.text || 'Hubo un error. Intenta de nuevo.';
+    const r = await callAIChatConFallback({ system: contexto, messages: [{ role: 'user', content: msg }], maxTokens: 1000 });
+    const respuesta = r.text || 'Hubo un error. Intenta de nuevo.';
     const bubble = document.getElementById(typId).querySelector('.msg-ai-bubble');
     bubble.innerHTML = respuesta.replace(/\n/g, '<br>');
     const copyBtn = document.createElement('button');
@@ -9661,20 +9729,8 @@ ${datos.tipoOp === 'auto' && datos.hizoPrueba > 0 ? `PRUEBA DE MANEJO: ${datos.h
 Responde de forma DIRECTA, CONCRETA y ACCIONABLE. Máximo 100 palabras. Da consejos específicos para esta situación real. No hagas preguntas, da la respuesta.`;
 
   try {
-    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1000,
-        system: contexto,
-        messages: [{ role: 'user', content: msg }]
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
-    const respuesta = data.content?.[0]?.text || 'Hubo un error. Intenta de nuevo.';
+    const r = await callAIChatConFallback({ system: contexto, messages: [{ role: 'user', content: msg }], maxTokens: 1000 });
+    const respuesta = r.text || 'Hubo un error. Intenta de nuevo.';
     const bubble = document.getElementById(typId).querySelector('.msg-ai-bubble');
     bubble.innerHTML = respuesta.replace(/\n/g, '<br>');
     const copyBtn = document.createElement('button');
@@ -9823,19 +9879,8 @@ Escribe aquí 2-3 párrafos con la estrategia específica de cierre: qué decirl
 IMPORTANTE: Responde ÚNICAMENTE con las 6 secciones usando exactamente los marcadores ###NOMBRE###. No agregues texto antes ni después.`;
 
   try {
-    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 4000,
-        messages: [{ role: 'user', content: promptIA }]
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
-    const texto = data.content?.[0]?.text || '';
+    const r = await callAIChatConFallback({ messages: [{ role: 'user', content: promptIA }], maxTokens: 4000 });
+    const texto = r.text || '';
 
     // Parser robusto usando marcadores ###SECCION###
     const parseSec = (key) => {
@@ -9949,19 +9994,8 @@ async function generarSiguientesPasos() {
 Responde en español con una lista numerada de 3 a 5 acciones, cada una en una sola línea corta y concreta (qué hacer, y cuándo/por qué canal si aplica). No agregues encabezados, explicaciones ni texto antes o después de la lista.`;
 
   try {
-    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 400,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
-    const texto = data.content?.[0]?.text?.trim() || 'No se pudo generar la respuesta.';
+    const r = await callAIChatConFallback({ messages: [{ role: 'user', content: prompt }], maxTokens: 400 });
+    const texto = (r.text || '').trim() || 'No se pudo generar la respuesta.';
     const body = document.getElementById('qaModalBody');
     if (body) { body.textContent = texto; document.getElementById('qaCopyBtn').style.display = ''; }
   } catch(e) {
@@ -10000,19 +10034,8 @@ async function generarMensajeIA() {
 Redacta UN solo mensaje breve, natural y en español, adaptado al canal indicado (si es WhatsApp/SMS: corto e informal-profesional; si es correo: incluye saludo y cierre cordial). El objetivo es avanzar la operación según su estado actual y resolver la objeción principal si existe. No agregues explicaciones, etiquetas ni texto fuera del mensaje mismo.`;
 
   try {
-    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: getHeaders(),
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 500,
-        messages: [{ role: 'user', content: prompt }]
-      })
-    });
-    const data = await res.json();
-    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
-    const texto = data.content?.[0]?.text?.trim() || 'No se pudo generar la respuesta.';
+    const r = await callAIChatConFallback({ messages: [{ role: 'user', content: prompt }], maxTokens: 500 });
+    const texto = (r.text || '').trim() || 'No se pudo generar la respuesta.';
     const body = document.getElementById('qaModalBody');
     if (body) { body.textContent = texto; document.getElementById('qaCopyBtn').style.display = ''; }
   } catch(e) {
@@ -14617,29 +14640,20 @@ async function ieSendChat() {
   };
   addBubble(msg, true);
   const loadDiv = addBubble('💛 <em>Analizando tu situación…</em>', false);
-  const apiKey = localStorage.getItem('nexus_api_key');
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['x-api-key'] = apiKey;
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 600,
-        system: `Eres un coach de Inteligencia Emocional experto, empático y práctico. Basas tus respuestas en los modelos de Daniel Goleman, Paul Ekman, Kristin Neff y otras fuentes científicas de IE. 
+    const r = await callAIChatConFallback({
+      system: `Eres un coach de Inteligencia Emocional experto, empático y práctico. Basas tus respuestas en los modelos de Daniel Goleman, Paul Ekman, Kristin Neff y otras fuentes científicas de IE. 
 El usuario puede plantearte situaciones personales (relaciones, estrés, familia) o profesionales (ventas, clientes difíciles, rechazo, presión). 
 Responde siempre: 1) Validando su emoción o situación. 2) Dando una perspectiva de IE clara. 3) Una técnica o acción concreta y aplicable. 
 Usa un tono cálido, directo y sin tecnicismos innecesarios. Responde en español. Máximo 250 palabras.`,
-        messages: ieChatHistory.map(m => ({ role: m.role, content: m.content }))
-      })
+      messages: ieChatHistory.map(m => ({ role: m.role, content: m.content })),
+      maxTokens: 600
     });
-    const data = await resp.json();
-    const reply = data.content && data.content[0] ? data.content[0].text : 'Lo siento, hubo un error. Intenta de nuevo.';
+    const reply = r.text || 'Lo siento, hubo un error. Intenta de nuevo.';
     loadDiv.querySelector('div').innerHTML = reply.replace(/\n/g,'<br>');
     ieChatHistory.push({ role: 'assistant', content: reply });
   } catch(e) {
-    loadDiv.querySelector('div').innerHTML = '⚠️ Error de conexión. Verifica tu API key en Configuración.';
+    loadDiv.querySelector('div').innerHTML = '⚠️ ' + (e?.message || 'Error de conexión') + '. Verifica tu API key en Configuración.';
   }
 }
 
@@ -15066,29 +15080,20 @@ async function pnlSendChat() {
   };
   addBubble(msg, true);
   const loadDiv = addBubble('🧩 <em>Pensando…</em>', false);
-  const apiKey = localStorage.getItem('nexus_api_key');
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['x-api-key'] = apiKey;
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 600,
-        system: `Eres un coach experto en Programación Neurolingüística (PNL) y Neuroventas. Tienes un conocimiento profundo de los modelos de Bandler, Grinder, Robbins y Jürgen Deckert sobre neuroventas. 
+    const r = await callAIChatConFallback({
+      system: `Eres un coach experto en Programación Neurolingüística (PNL) y Neuroventas. Tienes un conocimiento profundo de los modelos de Bandler, Grinder, Robbins y Jürgen Deckert sobre neuroventas. 
 El usuario puede preguntarte sobre técnicas de PNL, sistemas representacionales (VAK), rapport, reencuadre, anclaje, lenguaje estratégico y cómo aplicar todo esto en ventas de autos, inmuebles, servicios o negocios. 
 Responde siempre: 1) Explicando el principio de PNL relevante. 2) Dando un ejemplo concreto adaptado a la situación de ventas. 3) Una frase o técnica lista para usar. 
 Tono: práctico, directo, sin tecnicismos innecesarios. Responde en español. Máximo 280 palabras.`,
-        messages: pnlChatHistory.map(m => ({ role: m.role, content: m.content }))
-      })
+      messages: pnlChatHistory.map(m => ({ role: m.role, content: m.content })),
+      maxTokens: 600
     });
-    const data = await resp.json();
-    const reply = data.content && data.content[0] ? data.content[0].text : 'Lo siento, hubo un error. Intenta de nuevo.';
+    const reply = r.text || 'Lo siento, hubo un error. Intenta de nuevo.';
     loadDiv.querySelector('div').innerHTML = reply.replace(/\n/g, '<br>');
     pnlChatHistory.push({ role: 'assistant', content: reply });
   } catch (e) {
-    loadDiv.querySelector('div').innerHTML = '⚠️ Error de conexión. Verifica tu API key en Configuración.';
+    loadDiv.querySelector('div').innerHTML = '⚠️ ' + (e?.message || 'Error de conexión') + '. Verifica tu API key en Configuración.';
   }
 }
 
@@ -15253,24 +15258,17 @@ async function academiaChat_send(type) {
   };
   addBubble(msg, true);
   const loadDiv = addBubble(cfg.thinkingText, false);
-  const apiKey = localStorage.getItem('nexus_api_key');
-  const headers = { 'Content-Type': 'application/json' };
-  if (apiKey) headers['x-api-key'] = apiKey;
   try {
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST', headers,
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-6', max_tokens: 600,
-        system: cfg.system,
-        messages: hist.map(m => ({ role: m.role, content: m.content }))
-      })
+    const r = await callAIChatConFallback({
+      system: cfg.system,
+      messages: hist.map(m => ({ role: m.role, content: m.content })),
+      maxTokens: 600
     });
-    const data = await resp.json();
-    const reply = data.content && data.content[0] ? data.content[0].text : 'Lo siento, hubo un error. Intenta de nuevo.';
+    const reply = r.text || 'Lo siento, hubo un error. Intenta de nuevo.';
     loadDiv.querySelector('div').innerHTML = reply.replace(/\n/g, '<br>');
     hist.push({ role: 'assistant', content: reply });
   } catch (e) {
-    loadDiv.querySelector('div').innerHTML = '⚠️ Error de conexión. Verifica tu API key en Configuración.';
+    loadDiv.querySelector('div').innerHTML = '⚠️ ' + (e?.message || 'Error de conexión') + '. Verifica tu API key en Configuración.';
   }
 }
 
@@ -15426,20 +15424,8 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
     const contexto = getNexusGlobalContext();
 
     try {
-      if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: getHeaders(),
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-6',
-          max_tokens: 1000,
-          system: contexto,
-          messages: [{ role: 'user', content: msg }]
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
-      const respuesta = data.content?.[0]?.text || 'Hubo un error. Intenta de nuevo.';
+      const r = await callAIChatConFallback({ system: contexto, messages: [{ role: 'user', content: msg }], maxTokens: 1000 });
+      const respuesta = r.text || 'Hubo un error. Intenta de nuevo.';
       const bubble = document.getElementById(typId).querySelector('.msg-ai-bubble');
       bubble.innerHTML = respuesta.replace(/\n/g, '<br>');
       const copyBtn = document.createElement('button');
