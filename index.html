@@ -2004,6 +2004,31 @@
 /* ══════════════════════════════════════════════════════
    FIN VENTAMINDS PRO ESTILOS
    ══════════════════════════════════════════════════════ */
+
+/* ══════════════════════════════════════════════════════
+   AJUSTES DE PRESENTACIÓN PARA ESCRITORIO — SOLO VISUAL
+   No modifica funcionalidad, lógica ni comportamiento.
+   No afecta la vista móvil (min-width: 901px).
+   ══════════════════════════════════════════════════════ */
+@media (min-width: 901px) {
+  .wrap, .page-body { max-width: 952px; }
+  body { font-size: 17px; }
+  .card h2 { font-size: 16px; }
+  .section-title { font-size: 12px; }
+  .analyze-btn { font-size: 17px; }
+  .input-card textarea { font-size: 17px; }
+  .mini-box .val { font-size: 23px; }
+  .mini-box .lbl { font-size: 12.5px; }
+  .therm-container { height: 32px; }
+
+  /* Gráficos e indicadores: proporción correcta, sin exagerar */
+  .mindmap-svg { max-width: 900px !important; }
+  .gauge { max-width: 230px !important; }
+  .flow-svg { max-width: 330px !important; }
+  svg[viewBox="0 0 220 200"] { max-width: 310px !important; }
+  svg[viewBox="0 0 160 85"] { max-width: 205px !important; }
+  svg[viewBox="0 0 108 62"] { width: 124px !important; height: 71px !important; }
+}
 </style>
 
   <!-- CDN requeridos por VentaMinds PRO (Gestión Comercial) -->
