@@ -4145,10 +4145,10 @@ let userChatgptKey='';   // OpenAI ChatGPT
 let userGrokKey='';      // xAI Grok
 
 const API_KEY_RULES={
-  claude:  v=>v.startsWith('sk-ant-') && v.length>=20,
-  gemini:  v=>v.startsWith('AIza')    && v.length>=15,
-  chatgpt: v=>v.startsWith('sk-')     && v.length>=20,
-  grok:    v=>v.startsWith('xai-')    && v.length>=15,
+  claude:  v=>v.trim().length>0,
+  gemini:  v=>v.trim().length>0,
+  chatgpt: v=>v.trim().length>0,
+  grok:    v=>v.trim().length>0,
 };
 // Listas de modelos con fallback: si el primero no está disponible (404), se prueba el siguiente
 const CLAUDE_MODELS  = ['claude-sonnet-4-6','claude-haiku-4-5-20251001'];
@@ -8662,9 +8662,9 @@ function updateApiKeyStatus(){
 }
 // Configuración genérica reutilizable para los proveedores de respaldo (Gemini/ChatGPT/Grok)
 const BACKUP_PROVIDERS=[
-  {varName:'userGeminiKey', storageKey:'avapro_gemini_key', domPrefix:'geminiKey', label:'Gemini', rule:API_KEY_RULES.gemini, hint:'⚠️ La clave de Gemini debe empezar con AIza'},
-  {varName:'userChatgptKey',storageKey:'avapro_chatgpt_key',domPrefix:'chatgptKey',label:'ChatGPT',rule:API_KEY_RULES.chatgpt,hint:'⚠️ La clave de ChatGPT debe empezar con sk-'},
-  {varName:'userGrokKey',   storageKey:'avapro_grok_key',   domPrefix:'grokKey',   label:'Grok',   rule:API_KEY_RULES.grok,   hint:'⚠️ La clave de Grok debe empezar con xai-'},
+  {varName:'userGeminiKey', storageKey:'avapro_gemini_key', domPrefix:'geminiKey', label:'Gemini', rule:API_KEY_RULES.gemini, hint:'⚠️ Ingresa una clave de Gemini'},
+  {varName:'userChatgptKey',storageKey:'avapro_chatgpt_key',domPrefix:'chatgptKey',label:'ChatGPT',rule:API_KEY_RULES.chatgpt,hint:'⚠️ Ingresa una clave de ChatGPT'},
+  {varName:'userGrokKey',   storageKey:'avapro_grok_key',   domPrefix:'grokKey',   label:'Grok',   rule:API_KEY_RULES.grok,   hint:'⚠️ Ingresa una clave de Grok'},
 ];
 function updateBackupKeyStatus(p){
   const statusEl=document.getElementById(p.domPrefix+'Status');
@@ -8724,7 +8724,6 @@ function initApiKeyUI(){
   saveBtn.addEventListener('click',()=>{
     const val=inp.value.trim();
     if(!val){showToast('Ingresa una API key primero');return;}
-    if(!val.startsWith('sk-ant-')){showToast('⚠️ La clave debe empezar con sk-ant-');return;}
     saveApiKey(val);
     updateApiKeyStatus();
     showToast('✓ API Key guardada');
