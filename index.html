@@ -805,6 +805,8 @@
   .apikey-info { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 10px; }
   .apikey-info a { color: var(--gold); text-decoration: none; }
   .apikey-info a:hover { text-decoration: underline; }
+  .apikey-provider { border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px 14px; margin-bottom: 12px; background: var(--panel); }
+  .apikey-provider-label { font-size: 13px; font-weight: 700; color: var(--cream); margin-bottom: 2px; }
 
   /* ── Perfil de Usuario ── */
   .user-profile-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px 18px 14px; margin-bottom: 16px; box-shadow: var(--shadow); }
@@ -4133,43 +4135,200 @@ function getUserProfileContext(){
 
 // Los listeners de perfil se inicializan en DOMContentLoaded (ver initProfileUI)
 
-// ─── API Key ──────────────────────────────────────────────────────────────────
-let userApiKey='';
-async function loadApiKey(){
-  try{
-    if(window.storage){const r=await window.storage.get(APIKEY_KEY).catch(()=>null);if(r&&r.value)userApiKey=r.value;}
-  }catch(e){}
-  // Also check localStorage as fallback for non-artifact environments
-  try{const lk=localStorage.getItem(APIKEY_KEY);if(lk)userApiKey=lk;}catch(e){}
+// ─── API Keys multi-proveedor (Claude, Gemini, ChatGPT, Grok) ─────────────────
+const GEMINI_KEY_KEY='avapro_gemini_key';
+const CHATGPT_KEY_KEY='avapro_chatgpt_key';
+const GROK_KEY_KEY='avapro_grok_key';
+let userApiKey='';       // Claude (Anthropic)
+let userGeminiKey='';    // Google Gemini
+let userChatgptKey='';   // OpenAI ChatGPT
+let userGrokKey='';      // xAI Grok
+
+const API_KEY_RULES={
+  claude:  v=>v.startsWith('sk-ant-') && v.length>=20,
+  gemini:  v=>v.startsWith('AIza')    && v.length>=15,
+  chatgpt: v=>v.startsWith('sk-')     && v.length>=20,
+  grok:    v=>v.startsWith('xai-')    && v.length>=15,
+};
+// Listas de modelos con fallback: si el primero no está disponible (404), se prueba el siguiente
+const CLAUDE_MODELS  = ['claude-sonnet-4-6','claude-haiku-4-5-20251001'];
+const GEMINI_MODELS  = ['gemini-2.5-flash','gemini-2.0-flash'];
+const CHATGPT_MODELS = ['gpt-4o-mini','gpt-4.1-mini','gpt-3.5-turbo'];
+const GROK_MODELS    = ['grok-3-mini','grok-2-latest','grok-beta'];
+
+async function loadProviderKey(storageKey){
+  let val='';
+  try{ if(window.storage){const r=await window.storage.get(storageKey).catch(()=>null); if(r&&r.value) val=r.value;} }catch(e){}
+  try{ const lk=localStorage.getItem(storageKey); if(lk) val=lk; }catch(e){}
+  return val;
 }
-function saveApiKey(key){
-  userApiKey=key.trim();
-  try{if(window.storage)window.storage.set(APIKEY_KEY,userApiKey).catch(()=>{});}catch(e){}
-  try{localStorage.setItem(APIKEY_KEY,userApiKey);}catch(e){}
+function saveProviderKey(storageKey,val){
+  try{ if(window.storage) window.storage.set(storageKey,val).catch(()=>{}); }catch(e){}
+  try{ localStorage.setItem(storageKey,val); }catch(e){}
 }
-function clearApiKey(){
-  userApiKey='';
-  try{if(window.storage)window.storage.delete(APIKEY_KEY).catch(()=>{});}catch(e){}
-  try{localStorage.removeItem(APIKEY_KEY);}catch(e){}
+function clearProviderKey(storageKey){
+  try{ if(window.storage) window.storage.delete(storageKey).catch(()=>{}); }catch(e){}
+  try{ localStorage.removeItem(storageKey); }catch(e){}
+}
+
+async function loadApiKey(){ userApiKey=await loadProviderKey(APIKEY_KEY); }
+function saveApiKey(key){ userApiKey=key.trim(); saveProviderKey(APIKEY_KEY,userApiKey); }
+function clearApiKey(){ userApiKey=''; clearProviderKey(APIKEY_KEY); }
+
+async function loadAllApiKeys(){
+  await loadApiKey();
+  userGeminiKey=await loadProviderKey(GEMINI_KEY_KEY);
+  userChatgptKey=await loadProviderKey(CHATGPT_KEY_KEY);
+  userGrokKey=await loadProviderKey(GROK_KEY_KEY);
 }
 // Detect if running inside Claude.ai artifact proxy (no key needed)
 function isClaudeArtifact(){ return !!(window.__CLAUDE_ARTIFACT__ || (typeof window.storage!=='undefined')); }
 
-// ─── API ─────────────────────────────────────────────────────────────────────
+// ─── API: helpers comunes ──────────────────────────────────────────────────────
+function extractJson(text){
+  let clean=String(text).trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
+  const fi=clean.indexOf('{'),la=clean.lastIndexOf('}');
+  if(fi!==-1&&la!==-1) clean=clean.slice(fi,la+1);
+  return JSON.parse(clean);
+}
+function sleep(ms){ return new Promise(res=>setTimeout(res,ms)); }
+
+// ─── Claude (Anthropic) ─────────────────────────────────────────────────────────
 function getHeaders(){
   const h={'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'};
   if(userApiKey) h['x-api-key']=userApiKey;
   return h;
 }
+async function callClaudeAI(prompt,maxTokens=1200,opts={}){
+  const maxRetries=opts.maxRetries??2;
+  for(const model of CLAUDE_MODELS){
+    for(let attempt=0;attempt<=maxRetries;attempt++){
+      let r;
+      try{
+        r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:getHeaders(),body:JSON.stringify({model,max_tokens:maxTokens,messages:[{role:'user',content:prompt}]})});
+      }catch(e){ return {error:'NETWORK',message:e.message}; }
+      if(r.status===404) break; // probar siguiente modelo
+      if(r.status===429){
+        if(attempt<maxRetries){ const ra=parseInt(r.headers.get('Retry-After')||'0',10); await sleep((ra||Math.pow(2,attempt)*5)*1000); continue; }
+        return {error:'RATE_LIMIT',message:'Límite de solicitudes alcanzado'};
+      }
+      if(!r.ok){
+        const e=await r.json().catch(()=>({}));
+        if(r.status===401||r.status===403) return {error:'INVALID_KEY',message:e?.error?.message||'Clave inválida'};
+        if(r.status===402||/quota|credit/i.test(e?.error?.message||'')) return {error:'QUOTA',message:e?.error?.message||'Sin cuota disponible'};
+        return {error:`HTTP_${r.status}`,message:e?.error?.message||`HTTP ${r.status}`};
+      }
+      const data=await r.json();
+      const tb=(data.content||[]).find(b=>b.type==='text');
+      if(!tb) return {error:'EMPTY',message:'Respuesta vacía'};
+      return {ok:true,text:tb.text,label:'Claude'};
+    }
+  }
+  return {error:'NO_MODEL',message:'Ningún modelo de Claude disponible'};
+}
+
+// ─── Gemini (Google) ────────────────────────────────────────────────────────────
+async function callGeminiAI(prompt,maxTokens=1200,opts={}){
+  if(!userGeminiKey) return {error:'NO_KEY',message:'Falta API key de Gemini'};
+  const maxRetries=opts.maxRetries??2;
+  for(const model of GEMINI_MODELS){
+    for(let attempt=0;attempt<=maxRetries;attempt++){
+      let r;
+      try{
+        r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(userGeminiKey)}`,{
+          method:'POST',headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})
+        });
+      }catch(e){ return {error:'NETWORK',message:e.message}; }
+      if(r.status===404) break;
+      if(r.status===429){
+        if(attempt<maxRetries){ const ra=parseInt(r.headers.get('Retry-After')||'0',10); await sleep((ra||Math.pow(2,attempt)*5)*1000); continue; }
+        return {error:'RATE_LIMIT',message:'Límite de solicitudes alcanzado'};
+      }
+      if(!r.ok){
+        const e=await r.json().catch(()=>({}));
+        const msg=e?.error?.message||`HTTP ${r.status}`;
+        if(r.status===401||r.status===403) return {error:'INVALID_KEY',message:msg};
+        if(/quota/i.test(msg)) return {error:'QUOTA',message:msg};
+        return {error:`HTTP_${r.status}`,message:msg};
+      }
+      const data=await r.json();
+      const text=data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      if(!text) return {error:'EMPTY',message:'Respuesta vacía'};
+      return {ok:true,text,label:'Gemini'};
+    }
+  }
+  return {error:'NO_MODEL',message:'Ningún modelo de Gemini disponible'};
+}
+
+// ─── ChatGPT / Grok (compatibles con OpenAI chat completions) ──────────────────
+async function callOpenAICompatibleAI(prompt,maxTokens,opts){
+  const {apiKey,models,endpoint,label,maxRetries=2}=opts;
+  if(!apiKey) return {error:'NO_KEY',message:`Falta API key de ${label}`};
+  for(const model of models){
+    for(let attempt=0;attempt<=maxRetries;attempt++){
+      let r;
+      try{
+        r=await fetch(endpoint,{
+          method:'POST',
+          headers:{'Content-Type':'application/json','Authorization':'Bearer '+apiKey},
+          body:JSON.stringify({model,max_tokens:maxTokens,messages:[{role:'user',content:prompt}]})
+        });
+      }catch(e){ return {error:'NETWORK',message:e.message}; }
+      if(r.status===404) break;
+      if(r.status===429){
+        if(attempt<maxRetries){ const ra=parseInt(r.headers.get('Retry-After')||'0',10); await sleep((ra||Math.pow(2,attempt)*5)*1000); continue; }
+        return {error:'RATE_LIMIT',message:'Límite de solicitudes alcanzado'};
+      }
+      if(!r.ok){
+        const e=await r.json().catch(()=>({}));
+        const msg=e?.error?.message||`HTTP ${r.status}`;
+        if(r.status===401||r.status===403) return {error:'INVALID_KEY',message:msg};
+        if(r.status===402||/quota|insufficient/i.test(msg)) return {error:'QUOTA',message:msg};
+        return {error:`HTTP_${r.status}`,message:msg};
+      }
+      const data=await r.json();
+      const text=data?.choices?.[0]?.message?.content;
+      if(!text) return {error:'EMPTY',message:'Respuesta vacía'};
+      return {ok:true,text,label};
+    }
+  }
+  return {error:'NO_MODEL',message:`Ningún modelo de ${label} disponible`};
+}
+function callChatGPTAI(prompt,maxTokens=1200){
+  return callOpenAICompatibleAI(prompt,maxTokens,{apiKey:userChatgptKey,models:CHATGPT_MODELS,endpoint:'https://api.openai.com/v1/chat/completions',label:'ChatGPT'});
+}
+function callGrokAI(prompt,maxTokens=1200){
+  return callOpenAICompatibleAI(prompt,maxTokens,{apiKey:userGrokKey,models:GROK_MODELS,endpoint:'https://api.x.ai/v1/chat/completions',label:'Grok'});
+}
+
+// ─── Orquestador con fallback entre proveedores ────────────────────────────────
+// Prueba Claude primero (funciona sin key dentro de Claude.ai vía proxy), luego
+// Gemini/ChatGPT/Grok solo si el usuario configuró su clave. Devuelve SIEMPRE
+// el JSON ya parseado, igual que antes, para no romper el resto de la app.
+let lastAIProviderUsed='';
+async function callAIConFallback(prompt,maxTokens=1200){
+  const providers=[{label:'Claude',fn:()=>callClaudeAI(prompt,maxTokens)}];
+  if(userGeminiKey)  providers.push({label:'Gemini', fn:()=>callGeminiAI(prompt,maxTokens)});
+  if(userChatgptKey) providers.push({label:'ChatGPT',fn:()=>callChatGPTAI(prompt,maxTokens)});
+  if(userGrokKey)    providers.push({label:'Grok',   fn:()=>callGrokAI(prompt,maxTokens)});
+
+  let lastErr=null;
+  for(const p of providers){
+    try{
+      const r=await p.fn();
+      if(r && r.ok){
+        lastAIProviderUsed=r.label||p.label;
+        return extractJson(r.text);
+      }
+      lastErr=new Error((r&&r.message)||`Fallo en ${p.label}`);
+    }catch(e){ lastErr=e; }
+  }
+  throw lastErr||new Error('Todos los proveedores de IA fallaron');
+}
+// Alias retrocompatible: el resto de la app sigue llamando a callClaude(prompt, maxTokens)
 async function callClaude(prompt,maxTokens=1200){
-  const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:getHeaders(),body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:maxTokens,messages:[{role:'user',content:prompt}]})});
-  if(!r.ok){const e=await r.json().catch(()=>({})); throw new Error(e?.error?.message||`HTTP ${r.status}`);}
-  const data=await r.json();
-  const tb=data.content.find(b=>b.type==='text'); if(!tb) throw new Error('empty');
-  let clean=tb.text.trim().replace(/^```json/i,'').replace(/^```/,'').replace(/```$/,'').trim();
-  const fi=clean.indexOf('{'),la=clean.lastIndexOf('}');
-  if(fi!==-1&&la!==-1) clean=clean.slice(fi,la+1);
-  return JSON.parse(clean);
+  return callAIConFallback(prompt,maxTokens);
 }
 
 // ─── Theme ───────────────────────────────────────────────────────────────────
@@ -8485,7 +8644,7 @@ function escAttr(str){return String(str).replace(/"/g,'&quot;').replace(/'/g,'&#
 
 // ─── Otro Idioma Modal eliminado — japonés y coreano agregados directamente ──
 
-// ─── API Key UI helpers ───────────────────────────────────────────────────────
+// ─── API Key UI helpers (multi-proveedor) ─────────────────────────────────────
 function updateApiKeyStatus(){
   const statusEl=document.getElementById('apikeyStatus');
   const textEl=document.getElementById('apikeyStatusText');
@@ -8500,6 +8659,56 @@ function updateApiKeyStatus(){
     statusEl.className='apikey-status none';
     textEl.textContent='Sin clave — modo Claude.ai (usa tus tokens de cuenta)';
   }
+}
+// Configuración genérica reutilizable para los proveedores de respaldo (Gemini/ChatGPT/Grok)
+const BACKUP_PROVIDERS=[
+  {varName:'userGeminiKey', storageKey:'avapro_gemini_key', domPrefix:'geminiKey', label:'Gemini', rule:API_KEY_RULES.gemini, hint:'⚠️ La clave de Gemini debe empezar con AIza'},
+  {varName:'userChatgptKey',storageKey:'avapro_chatgpt_key',domPrefix:'chatgptKey',label:'ChatGPT',rule:API_KEY_RULES.chatgpt,hint:'⚠️ La clave de ChatGPT debe empezar con sk-'},
+  {varName:'userGrokKey',   storageKey:'avapro_grok_key',   domPrefix:'grokKey',   label:'Grok',   rule:API_KEY_RULES.grok,   hint:'⚠️ La clave de Grok debe empezar con xai-'},
+];
+function updateBackupKeyStatus(p){
+  const statusEl=document.getElementById(p.domPrefix+'Status');
+  const textEl=document.getElementById(p.domPrefix+'StatusText');
+  const inp=document.getElementById(p.domPrefix+'Input');
+  if(!statusEl||!textEl||!inp)return;
+  const val=window[p.varName];
+  if(val){
+    inp.value=val;
+    statusEl.className='apikey-status saved';
+    textEl.textContent=`✓ Clave guardada — se usa como respaldo`;
+  } else {
+    inp.value='';
+    statusEl.className='apikey-status none';
+    textEl.textContent='Sin clave — no se usará como respaldo';
+  }
+}
+function initBackupKeyUI(p){
+  const inp=document.getElementById(p.domPrefix+'Input');
+  const eyeBtn=document.getElementById(p.domPrefix+'Eye');
+  const saveBtn=document.getElementById(p.domPrefix+'Save');
+  const clearBtn=document.getElementById(p.domPrefix+'Clear');
+  if(!inp)return;
+  eyeBtn.addEventListener('click',()=>{
+    const hidden=inp.type==='password';
+    inp.type=hidden?'text':'password';
+    eyeBtn.textContent=hidden?'🙈':'👁';
+  });
+  saveBtn.addEventListener('click',()=>{
+    const val=inp.value.trim();
+    if(!val){showToast('Ingresa una API key primero');return;}
+    if(p.rule && !p.rule(val)){showToast(p.hint);return;}
+    window[p.varName]=val;
+    saveProviderKey(p.storageKey,val);
+    updateBackupKeyStatus(p);
+    showToast(`✓ Clave de ${p.label} guardada`);
+  });
+  clearBtn.addEventListener('click',()=>{
+    window[p.varName]='';
+    clearProviderKey(p.storageKey);
+    updateBackupKeyStatus(p);
+    showToast(`Clave de ${p.label} borrada`);
+  });
+  updateBackupKeyStatus(p);
 }
 function initApiKeyUI(){
   const inp=document.getElementById('apikeyInput');
@@ -8527,6 +8736,7 @@ function initApiKeyUI(){
     showToast('Clave borrada');
   });
   updateApiKeyStatus();
+  BACKUP_PROVIDERS.forEach(initBackupKeyUI);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -10223,7 +10433,7 @@ async function descargarPDF() {
 document.addEventListener('DOMContentLoaded',async()=>{
   initTheme();
   loadHistory();
-  await loadApiKey();
+  await loadAllApiKeys();
   updateCounter();
   inputText.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='Enter'){document.getElementById('analyzeBtn').click();}});
 
@@ -15259,24 +15469,87 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
       </div>
     </div>
     <div class="settings-section">
-      <h3>🔑 API Key de Anthropic</h3>
-      <div class="apikey-wrap">
-        <input class="apikey-input" type="password" id="apikeyInput" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false">
-        <button class="apikey-eye" id="apikeyEye" title="Mostrar/ocultar">👁</button>
+      <h3>🔑 APIs de IA (con respaldo automático)</h3>
+      <div class="apikey-info" style="margin-bottom:14px;">
+        La app usa <strong>Claude</strong> como proveedor principal y, si configuras claves adicionales,
+        pasa automáticamente a <strong>Gemini → ChatGPT → Grok</strong> cuando el proveedor en turno falla
+        (límite de uso, sin crédito, etc.). Todas las claves se guardan solo en tu dispositivo.
       </div>
-      <div class="apikey-status none" id="apikeyStatus">
-        <span class="dot-status"></span>
-        <span id="apikeyStatusText">Sin clave guardada — se usa el proxy de Claude.ai</span>
+
+      <!-- Claude (Anthropic) -->
+      <div class="apikey-provider" data-provider="claude">
+        <div class="apikey-provider-label">🟣 Claude (Anthropic) — principal</div>
+        <div class="apikey-wrap">
+          <input class="apikey-input" type="password" id="apikeyInput" placeholder="sk-ant-api03-…" autocomplete="off" spellcheck="false">
+          <button class="apikey-eye" id="apikeyEye" title="Mostrar/ocultar">👁</button>
+        </div>
+        <div class="apikey-status none" id="apikeyStatus">
+          <span class="dot-status"></span>
+          <span id="apikeyStatusText">Sin clave guardada — se usa el proxy de Claude.ai</span>
+        </div>
+        <div class="apikey-btns">
+          <button class="btn-sm green" id="apikeySave">💾 Guardar</button>
+          <button class="btn-sm danger" id="apikeyClear">🗑 Borrar</button>
+        </div>
       </div>
-      <div class="apikey-btns">
-        <button class="btn-sm green" id="apikeySave">💾 Guardar clave</button>
-        <button class="btn-sm danger" id="apikeyClear">🗑 Borrar clave</button>
+
+      <!-- Gemini (Google) -->
+      <div class="apikey-provider" data-provider="gemini">
+        <div class="apikey-provider-label">🔵 Gemini (Google) — respaldo 1</div>
+        <div class="apikey-wrap">
+          <input class="apikey-input" type="password" id="geminiKeyInput" placeholder="AIza…" autocomplete="off" spellcheck="false">
+          <button class="apikey-eye" id="geminiKeyEye" title="Mostrar/ocultar">👁</button>
+        </div>
+        <div class="apikey-status none" id="geminiKeyStatus">
+          <span class="dot-status"></span>
+          <span id="geminiKeyStatusText">Sin clave — no se usará como respaldo</span>
+        </div>
+        <div class="apikey-btns">
+          <button class="btn-sm green" id="geminiKeySave">💾 Guardar</button>
+          <button class="btn-sm danger" id="geminiKeyClear">🗑 Borrar</button>
+        </div>
       </div>
+
+      <!-- ChatGPT (OpenAI) -->
+      <div class="apikey-provider" data-provider="chatgpt">
+        <div class="apikey-provider-label">🟢 ChatGPT (OpenAI) — respaldo 2</div>
+        <div class="apikey-wrap">
+          <input class="apikey-input" type="password" id="chatgptKeyInput" placeholder="sk-…" autocomplete="off" spellcheck="false">
+          <button class="apikey-eye" id="chatgptKeyEye" title="Mostrar/ocultar">👁</button>
+        </div>
+        <div class="apikey-status none" id="chatgptKeyStatus">
+          <span class="dot-status"></span>
+          <span id="chatgptKeyStatusText">Sin clave — no se usará como respaldo</span>
+        </div>
+        <div class="apikey-btns">
+          <button class="btn-sm green" id="chatgptKeySave">💾 Guardar</button>
+          <button class="btn-sm danger" id="chatgptKeyClear">🗑 Borrar</button>
+        </div>
+      </div>
+
+      <!-- Grok (xAI) -->
+      <div class="apikey-provider" data-provider="grok">
+        <div class="apikey-provider-label">⚫ Grok (xAI) — respaldo 3</div>
+        <div class="apikey-wrap">
+          <input class="apikey-input" type="password" id="grokKeyInput" placeholder="xai-…" autocomplete="off" spellcheck="false">
+          <button class="apikey-eye" id="grokKeyEye" title="Mostrar/ocultar">👁</button>
+        </div>
+        <div class="apikey-status none" id="grokKeyStatus">
+          <span class="dot-status"></span>
+          <span id="grokKeyStatusText">Sin clave — no se usará como respaldo</span>
+        </div>
+        <div class="apikey-btns">
+          <button class="btn-sm green" id="grokKeySave">💾 Guardar</button>
+          <button class="btn-sm danger" id="grokKeyClear">🗑 Borrar</button>
+        </div>
+      </div>
+
       <div class="apikey-info">
         <strong>¿Cuándo necesitas una API Key?</strong><br>
-        • <strong>Dentro de Claude.ai</strong> (este chat): <em>no necesitas nada</em>, la app usa tu cuenta y tokens automáticamente.<br>
-        • <strong>Fuera de Claude.ai</strong> (archivo local, tu servidor, GitHub Pages): ingresa tu clave de <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.<br><br>
-        La clave se guarda solo en tu dispositivo y nunca se envía a ningún servidor ajeno.
+        • <strong>Dentro de Claude.ai</strong> (este chat): <em>no necesitas nada</em> para Claude, la app usa tu cuenta y tokens automáticamente.<br>
+        • <strong>Fuera de Claude.ai</strong> (archivo local, tu servidor, GitHub Pages): ingresa tu clave de Claude en <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">console.anthropic.com</a>.<br>
+        • <strong>Gemini, ChatGPT y Grok son opcionales</strong>: solo actúan como respaldo si Claude falla y tú configuraste su clave (<a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Gemini</a> · <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">ChatGPT</a> · <a href="https://console.x.ai" target="_blank" rel="noopener">Grok</a>).<br><br>
+        Ninguna clave se envía a servidores ajenos; cada llamada va directo de tu navegador al proveedor correspondiente.
       </div>
     </div>
     <div class="settings-section">
