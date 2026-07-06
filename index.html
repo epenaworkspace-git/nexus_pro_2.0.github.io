@@ -9502,9 +9502,10 @@ ${datos.tipoOp === 'auto' && datos.hizoPrueba > 0 ? `- Prueba de manejo: ${datos
 Responde de forma directa, concreta y accionable en español. Máximo 120 palabras. Da consejos específicos para esta situación.`;
 
   try {
+    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
@@ -9513,6 +9514,7 @@ Responde de forma directa, concreta y accionable en español. Máximo 120 palabr
       })
     });
     const data = await res.json();
+    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
     const respuesta = data.content?.[0]?.text || 'Hubo un error. Intenta de nuevo.';
     const bubble = document.getElementById(typId).querySelector('.msg-ai-bubble');
     bubble.innerHTML = respuesta.replace(/\n/g, '<br>');
@@ -9521,8 +9523,8 @@ Responde de forma directa, concreta y accionable en español. Máximo 120 palabr
     copyBtn.innerHTML = '📋 Copiar';
     copyBtn.onclick = function() { copiarAlPortapapeles(respuesta, () => { copyBtn.innerHTML='✅ Copiado'; setTimeout(()=>copyBtn.innerHTML='📋 Copiar',2000); }); };
     bubble.appendChild(copyBtn);
-  } catch {
-    document.getElementById(typId).querySelector('.msg-ai-bubble').innerHTML = 'Error de conexión. Verifica tu conexión e intenta de nuevo.';
+  } catch(e) {
+    document.getElementById(typId).querySelector('.msg-ai-bubble').innerHTML = '⚠️ ' + (e?.message || 'Error de conexión') + '. Verifica tu API key en Configuración.';
   }
   chat.scrollTop = chat.scrollHeight;
 }
@@ -9588,9 +9590,10 @@ ${datos.tipoOp === 'auto' && datos.hizoPrueba > 0 ? `PRUEBA DE MANEJO: ${datos.h
 Responde de forma DIRECTA, CONCRETA y ACCIONABLE. Máximo 100 palabras. Da consejos específicos para esta situación real. No hagas preguntas, da la respuesta.`;
 
   try {
+    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 1000,
@@ -9599,6 +9602,7 @@ Responde de forma DIRECTA, CONCRETA y ACCIONABLE. Máximo 100 palabras. Da conse
       })
     });
     const data = await res.json();
+    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
     const respuesta = data.content?.[0]?.text || 'Hubo un error. Intenta de nuevo.';
     const bubble = document.getElementById(typId).querySelector('.msg-ai-bubble');
     bubble.innerHTML = respuesta.replace(/\n/g, '<br>');
@@ -9607,8 +9611,8 @@ Responde de forma DIRECTA, CONCRETA y ACCIONABLE. Máximo 100 palabras. Da conse
     copyBtn.innerHTML = '📋 Copiar';
     copyBtn.onclick = function() { copiarAlPortapapeles(respuesta, () => { copyBtn.innerHTML='✅ Copiado'; setTimeout(()=>copyBtn.innerHTML='📋 Copiar',2000); }); };
     bubble.appendChild(copyBtn);
-  } catch {
-    document.getElementById(typId).querySelector('.msg-ai-bubble').innerHTML = 'Error de conexión. Verifica tu conexión e intenta de nuevo.';
+  } catch(e) {
+    document.getElementById(typId).querySelector('.msg-ai-bubble').innerHTML = '⚠️ ' + (e?.message || 'Error de conexión') + '. Verifica tu API key en Configuración.';
   }
   chat.scrollTop = chat.scrollHeight;
 }
@@ -9748,9 +9752,10 @@ Escribe aquí 2-3 párrafos con la estrategia específica de cierre: qué decirl
 IMPORTANTE: Responde ÚNICAMENTE con las 6 secciones usando exactamente los marcadores ###NOMBRE###. No agregues texto antes ni después.`;
 
   try {
+    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 4000,
@@ -9758,6 +9763,7 @@ IMPORTANTE: Responde ÚNICAMENTE con las 6 secciones usando exactamente los marc
       })
     });
     const data = await res.json();
+    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
     const texto = data.content?.[0]?.text || '';
 
     // Parser robusto usando marcadores ###SECCION###
@@ -9805,7 +9811,7 @@ IMPORTANTE: Responde ÚNICAMENTE con las 6 secciones usando exactamente los marc
   } catch(e) {
     document.getElementById('reportGenerating').style.display = 'none';
     document.getElementById('reportEmpty').style.display = 'block';
-    document.getElementById('reportEmpty').innerHTML = `<div class="report-empty-icon">⚠️</div><div style="font-weight:600;color:var(--texto);margin-bottom:6px;">Error al generar</div><div style="font-size:12px;">Revisa tu conexión e intenta nuevamente.</div>`;
+    document.getElementById('reportEmpty').innerHTML = `<div class="report-empty-icon">⚠️</div><div style="font-weight:600;color:var(--texto);margin-bottom:6px;">Error al generar</div><div style="font-size:12px;">${e?.message || "Revisa tu conexión e intenta nuevamente."}</div>`;
   }
 }
 
@@ -9872,9 +9878,10 @@ async function generarSiguientesPasos() {
 Responde en español con una lista numerada de 3 a 5 acciones, cada una en una sola línea corta y concreta (qué hacer, y cuándo/por qué canal si aplica). No agregues encabezados, explicaciones ni texto antes o después de la lista.`;
 
   try {
+    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 400,
@@ -9882,12 +9889,13 @@ Responde en español con una lista numerada de 3 a 5 acciones, cada una en una s
       })
     });
     const data = await res.json();
+    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
     const texto = data.content?.[0]?.text?.trim() || 'No se pudo generar la respuesta.';
     const body = document.getElementById('qaModalBody');
     if (body) { body.textContent = texto; document.getElementById('qaCopyBtn').style.display = ''; }
   } catch(e) {
     const body = document.getElementById('qaModalBody');
-    if (body) body.textContent = '⚠️ Error al generar. Revisa tu conexión e intenta nuevamente.';
+    if (body) body.textContent = '⚠️ ' + (e?.message || 'Error al generar') + '. Verifica tu API key en Configuración.';
   } finally {
     btn.disabled = false;
   }
@@ -9921,9 +9929,10 @@ async function generarMensajeIA() {
 Redacta UN solo mensaje breve, natural y en español, adaptado al canal indicado (si es WhatsApp/SMS: corto e informal-profesional; si es correo: incluye saludo y cierre cordial). El objetivo es avanzar la operación según su estado actual y resolver la objeción principal si existe. No agregues explicaciones, etiquetas ni texto fuera del mensaje mismo.`;
 
   try {
+    if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getHeaders(),
       body: JSON.stringify({
         model: 'claude-sonnet-4-6',
         max_tokens: 500,
@@ -9931,12 +9940,13 @@ Redacta UN solo mensaje breve, natural y en español, adaptado al canal indicado
       })
     });
     const data = await res.json();
+    if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
     const texto = data.content?.[0]?.text?.trim() || 'No se pudo generar la respuesta.';
     const body = document.getElementById('qaModalBody');
     if (body) { body.textContent = texto; document.getElementById('qaCopyBtn').style.display = ''; }
   } catch(e) {
     const body = document.getElementById('qaModalBody');
-    if (body) body.textContent = '⚠️ Error al generar. Revisa tu conexión e intenta nuevamente.';
+    if (body) body.textContent = '⚠️ ' + (e?.message || 'Error al generar') + '. Verifica tu API key en Configuración.';
   } finally {
     btn.disabled = false;
   }
@@ -15345,9 +15355,10 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
     const contexto = getNexusGlobalContext();
 
     try {
+      if (!userApiKey) { throw new Error('Configura tu API key en Configuración (⚙️) antes de continuar.'); }
       const res = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: getHeaders(),
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
           max_tokens: 1000,
@@ -15356,6 +15367,7 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
         })
       });
       const data = await res.json();
+      if (!res.ok) { throw new Error(data?.error?.message || ('Error ' + res.status)); }
       const respuesta = data.content?.[0]?.text || 'Hubo un error. Intenta de nuevo.';
       const bubble = document.getElementById(typId).querySelector('.msg-ai-bubble');
       bubble.innerHTML = respuesta.replace(/\n/g, '<br>');
@@ -15364,8 +15376,8 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
       copyBtn.innerHTML = '📋 Copiar';
       copyBtn.onclick = function() { copiarAlPortapapeles(respuesta, () => { copyBtn.innerHTML='✅ Copiado'; setTimeout(()=>copyBtn.innerHTML='📋 Copiar',2000); }); };
       bubble.appendChild(copyBtn);
-    } catch {
-      document.getElementById(typId).querySelector('.msg-ai-bubble').innerHTML = 'Error de conexión. Intenta de nuevo.';
+    } catch(e) {
+      document.getElementById(typId).querySelector('.msg-ai-bubble').innerHTML = '⚠️ ' + (e?.message || 'Error de conexión') + '. Verifica tu API key en Configuración.';
     }
     chat.scrollTop = chat.scrollHeight;
   };
