@@ -801,7 +801,14 @@
   .apikey-status.ok .dot-status { background: var(--green); }
   .apikey-status.none .dot-status { background: var(--muted); }
   .apikey-status.saved .dot-status { background: var(--gold); }
-  .apikey-btns { display: flex; gap: 7px; margin-top: 10px; }
+  .apikey-status.error .dot-status { background: var(--red); }
+  .apikey-status.error { color: var(--red); }
+  .apikey-status.testing .dot-status { background: var(--gold); animation: apikeyPulse 0.9s ease-in-out infinite; }
+  @keyframes apikeyPulse { 0%,100%{opacity:1;} 50%{opacity:0.25;} }
+  .apikey-btns { display: flex; gap: 7px; margin-top: 10px; flex-wrap: wrap; }
+  .btn-sm.neutral { border-color: var(--line); color: var(--muted); }
+  .btn-sm.neutral:hover { border-color: var(--gold); color: var(--gold-bright); }
+  .btn-sm:disabled { opacity: 0.5; cursor: default; pointer-events: none; }
   .apikey-info { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; font-size: 13px; color: var(--muted); line-height: 1.6; margin-top: 10px; }
   .apikey-info a { color: var(--gold); text-decoration: none; }
   .apikey-info a:hover { text-decoration: underline; }
@@ -4235,8 +4242,10 @@ async function callGeminiAI(prompt,maxTokens=1200,opts={}){
     for(let attempt=0;attempt<=maxRetries;attempt++){
       let r;
       try{
-        r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(userGeminiKey)}`,{
-          method:'POST',headers:{'Content-Type':'application/json'},
+        // La clave se envía en el header (x-goog-api-key), igual que Claude/ChatGPT/Grok,
+        // en vez de como parámetro en la URL — más consistente y evita que quede en logs.
+        r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,{
+          method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':userGeminiKey},
           body:JSON.stringify({contents:[{parts:[{text:prompt}]}],generationConfig:{maxOutputTokens:maxTokens}})
         });
       }catch(e){ return {error:'NETWORK',message:e.message}; }
@@ -8644,98 +8653,160 @@ function escAttr(str){return String(str).replace(/"/g,'&quot;').replace(/'/g,'&#
 
 // ─── Otro Idioma Modal eliminado — japonés y coreano agregados directamente ──
 
-// ─── API Key UI helpers (multi-proveedor) ─────────────────────────────────────
-function updateApiKeyStatus(){
-  const statusEl=document.getElementById('apikeyStatus');
-  const textEl=document.getElementById('apikeyStatusText');
-  const inp=document.getElementById('apikeyInput');
-  if(!statusEl||!textEl||!inp)return;
-  if(userApiKey){
-    inp.value=userApiKey;
-    statusEl.className='apikey-status saved';
-    textEl.textContent='✓ Clave guardada — se usará en todas las llamadas';
-  } else {
-    inp.value='';
-    statusEl.className='apikey-status none';
-    textEl.textContent='Sin clave — modo Claude.ai (usa tus tokens de cuenta)';
-  }
-}
-// Configuración genérica reutilizable para los proveedores de respaldo (Gemini/ChatGPT/Grok)
-const BACKUP_PROVIDERS=[
-  {varName:'userGeminiKey', storageKey:'avapro_gemini_key', domPrefix:'geminiKey', label:'Gemini', rule:API_KEY_RULES.gemini, hint:'⚠️ Ingresa una clave de Gemini'},
-  {varName:'userChatgptKey',storageKey:'avapro_chatgpt_key',domPrefix:'chatgptKey',label:'ChatGPT',rule:API_KEY_RULES.chatgpt,hint:'⚠️ Ingresa una clave de ChatGPT'},
-  {varName:'userGrokKey',   storageKey:'avapro_grok_key',   domPrefix:'grokKey',   label:'Grok',   rule:API_KEY_RULES.grok,   hint:'⚠️ Ingresa una clave de Grok'},
+// ─── API Key UI helpers (multi-proveedor, unificado) ──────────────────────────
+// Los 4 proveedores comparten la misma UI y el mismo flujo:
+// Guardar y verificar conexión / Probar clave / Eliminar clave.
+// TODOS envían la clave por HEADER (nunca por query string en la URL):
+//  - Claude:  header x-api-key
+//  - Gemini:  header x-goog-api-key
+//  - ChatGPT: header Authorization: Bearer
+//  - Grok:    header Authorization: Bearer
+const ALL_PROVIDERS=[
+  {id:'claude',  varName:'userApiKey',      storageKey:APIKEY_KEY,        domPrefix:'apikey',    label:'Claude',  rule:API_KEY_RULES.claude,  hint:'⚠️ Ingresa una clave de Claude',  primary:true},
+  {id:'gemini',  varName:'userGeminiKey',   storageKey:GEMINI_KEY_KEY,    domPrefix:'geminiKey', label:'Gemini',  rule:API_KEY_RULES.gemini,  hint:'⚠️ Ingresa una clave de Gemini'},
+  {id:'chatgpt', varName:'userChatgptKey',  storageKey:CHATGPT_KEY_KEY,   domPrefix:'chatgptKey',label:'ChatGPT', rule:API_KEY_RULES.chatgpt, hint:'⚠️ Ingresa una clave de ChatGPT'},
+  {id:'grok',    varName:'userGrokKey',     storageKey:GROK_KEY_KEY,      domPrefix:'grokKey',   label:'Grok',    rule:API_KEY_RULES.grok,    hint:'⚠️ Ingresa una clave de Grok'},
 ];
-function updateBackupKeyStatus(p){
+// Mantener alias por compatibilidad con el resto del código que aún referencie BACKUP_PROVIDERS
+const BACKUP_PROVIDERS=ALL_PROVIDERS.filter(p=>!p.primary);
+
+// ─── Verificación REAL de conexión: hace una llamada mínima real a cada API ────
+async function testApiKeyConnection(providerId,key){
+  const testPrompt='Responde únicamente con la palabra OK.';
+  let r;
+  try{
+    if(providerId==='claude'){
+      r=await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','x-api-key':key},
+        body:JSON.stringify({model:'claude-haiku-4-5-20251001',max_tokens:10,messages:[{role:'user',content:testPrompt}]})
+      });
+    } else if(providerId==='gemini'){
+      r=await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','x-goog-api-key':key},
+        body:JSON.stringify({contents:[{parts:[{text:testPrompt}]}],generationConfig:{maxOutputTokens:10}})
+      });
+    } else if(providerId==='chatgpt'){
+      r=await fetch('https://api.openai.com/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+        body:JSON.stringify({model:'gpt-4o-mini',max_tokens:10,messages:[{role:'user',content:testPrompt}]})
+      });
+    } else if(providerId==='grok'){
+      r=await fetch('https://api.x.ai/v1/chat/completions',{
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+        body:JSON.stringify({model:'grok-3-mini',max_tokens:10,messages:[{role:'user',content:testPrompt}]})
+      });
+    } else {
+      return {ok:false,message:'Proveedor desconocido'};
+    }
+  }catch(e){
+    // Fetch falla por red caída o por CORS (el navegador bloquea la respuesta,
+    // no necesariamente significa que la clave esté mal).
+    return {ok:false,message:'No se pudo conectar (red sin conexión o bloqueo CORS del navegador)'};
+  }
+  if(r.status===401||r.status===403) return {ok:false,message:'Clave inválida o sin permisos (401/403)'};
+  if(r.status===429) return {ok:false,message:'Límite de solicitudes alcanzado — la clave sí es válida'};
+  if(r.status===404) return {ok:false,message:'Modelo no disponible para esta clave (404)'};
+  if(!r.ok){
+    let msg='HTTP '+r.status;
+    try{ const e=await r.json(); msg=e?.error?.message||e?.message||msg; }catch(_){}
+    if(/quota|credit|insufficient|billing/i.test(msg)) return {ok:false,message:'Sin crédito/cuota disponible — la clave sí es válida ('+msg+')'};
+    return {ok:false,message:msg};
+  }
+  return {ok:true,message:'Conexión verificada correctamente ✅'};
+}
+
+function setProviderStatus(p,state,text){
   const statusEl=document.getElementById(p.domPrefix+'Status');
   const textEl=document.getElementById(p.domPrefix+'StatusText');
+  if(!statusEl||!textEl)return;
+  statusEl.className='apikey-status '+state;
+  textEl.textContent=text;
+}
+function updateProviderStatus(p){
   const inp=document.getElementById(p.domPrefix+'Input');
-  if(!statusEl||!textEl||!inp)return;
+  if(!inp)return;
   const val=window[p.varName];
   if(val){
     inp.value=val;
-    statusEl.className='apikey-status saved';
-    textEl.textContent=`✓ Clave guardada — se usa como respaldo`;
+    setProviderStatus(p, p.primary?'saved':'saved', p.primary?'✓ Clave guardada — se usará en todas las llamadas':'✓ Clave guardada — se usa como respaldo');
   } else {
     inp.value='';
-    statusEl.className='apikey-status none';
-    textEl.textContent='Sin clave — no se usará como respaldo';
+    setProviderStatus(p,'none', p.primary?'Sin clave — modo Claude.ai (usa tus tokens de cuenta)':'Sin clave — no se usará como respaldo');
   }
 }
-function initBackupKeyUI(p){
+function setButtonsDisabled(p,disabled){
+  ['Save','Test','Clear'].forEach(suffix=>{
+    const btn=document.getElementById(p.domPrefix+suffix);
+    if(btn) btn.disabled=disabled;
+  });
+}
+function initProviderKeyUI(p){
   const inp=document.getElementById(p.domPrefix+'Input');
   const eyeBtn=document.getElementById(p.domPrefix+'Eye');
   const saveBtn=document.getElementById(p.domPrefix+'Save');
+  const testBtn=document.getElementById(p.domPrefix+'Test');
   const clearBtn=document.getElementById(p.domPrefix+'Clear');
   if(!inp)return;
+
   eyeBtn.addEventListener('click',()=>{
     const hidden=inp.type==='password';
     inp.type=hidden?'text':'password';
     eyeBtn.textContent=hidden?'🙈':'👁';
   });
-  saveBtn.addEventListener('click',()=>{
+
+  // 1) Guardar y verificar conexión: guarda la clave y de inmediato hace una llamada real
+  saveBtn.addEventListener('click', async ()=>{
     const val=inp.value.trim();
     if(!val){showToast('Ingresa una API key primero');return;}
     if(p.rule && !p.rule(val)){showToast(p.hint);return;}
     window[p.varName]=val;
     saveProviderKey(p.storageKey,val);
-    updateBackupKeyStatus(p);
-    showToast(`✓ Clave de ${p.label} guardada`);
+    setButtonsDisabled(p,true);
+    setProviderStatus(p,'testing','🔄 Guardando y verificando conexión…');
+    const result=await testApiKeyConnection(p.id,val);
+    setButtonsDisabled(p,false);
+    if(result.ok){
+      setProviderStatus(p,'ok','✓ Guardada y conectada correctamente');
+      showToast(`✓ Clave de ${p.label} guardada y verificada`);
+    } else {
+      setProviderStatus(p,'error','✗ Guardada, pero la conexión falló: '+result.message);
+      showToast(`⚠️ Clave de ${p.label} guardada, pero la conexión falló`);
+    }
   });
+
+  // 2) Probar clave: verifica el valor actual del campo SIN necesidad de guardarlo antes
+  testBtn.addEventListener('click', async ()=>{
+    const val=inp.value.trim()||window[p.varName];
+    if(!val){showToast('Ingresa una API key primero');return;}
+    setButtonsDisabled(p,true);
+    setProviderStatus(p,'testing','🔄 Verificando conexión…');
+    const result=await testApiKeyConnection(p.id,val);
+    setButtonsDisabled(p,false);
+    if(result.ok){
+      setProviderStatus(p,'ok','✓ '+result.message);
+      showToast(`✓ Conexión con ${p.label} funcionando`);
+    } else {
+      setProviderStatus(p,'error','✗ '+result.message);
+      showToast(`✗ Falló la conexión con ${p.label}`);
+    }
+  });
+
+  // 3) Eliminar clave
   clearBtn.addEventListener('click',()=>{
     window[p.varName]='';
     clearProviderKey(p.storageKey);
-    updateBackupKeyStatus(p);
-    showToast(`Clave de ${p.label} borrada`);
+    updateProviderStatus(p);
+    showToast(`Clave de ${p.label} eliminada`);
   });
-  updateBackupKeyStatus(p);
+
+  updateProviderStatus(p);
 }
 function initApiKeyUI(){
-  const inp=document.getElementById('apikeyInput');
-  const eyeBtn=document.getElementById('apikeyEye');
-  const saveBtn=document.getElementById('apikeySave');
-  const clearBtn=document.getElementById('apikeyClear');
-  if(!inp)return;
-  eyeBtn.addEventListener('click',()=>{
-    const hidden=inp.type==='password';
-    inp.type=hidden?'text':'password';
-    eyeBtn.textContent=hidden?'🙈':'👁';
-  });
-  saveBtn.addEventListener('click',()=>{
-    const val=inp.value.trim();
-    if(!val){showToast('Ingresa una API key primero');return;}
-    saveApiKey(val);
-    updateApiKeyStatus();
-    showToast('✓ API Key guardada');
-  });
-  clearBtn.addEventListener('click',()=>{
-    clearApiKey();
-    inp.value='';
-    updateApiKeyStatus();
-    showToast('Clave borrada');
-  });
-  updateApiKeyStatus();
-  BACKUP_PROVIDERS.forEach(initBackupKeyUI);
+  ALL_PROVIDERS.forEach(initProviderKeyUI);
 }
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -15499,8 +15570,9 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
           <span id="apikeyStatusText">Sin clave guardada — se usa el proxy de Claude.ai</span>
         </div>
         <div class="apikey-btns">
-          <button class="btn-sm green" id="apikeySave">💾 Guardar</button>
-          <button class="btn-sm danger" id="apikeyClear">🗑 Borrar</button>
+          <button class="btn-sm green" id="apikeySave">🔌 Guardar y verificar conexión</button>
+          <button class="btn-sm neutral" id="apikeyTest">🧪 Probar clave</button>
+          <button class="btn-sm danger" id="apikeyClear">🗑 Eliminar clave</button>
         </div>
       </div>
 
@@ -15516,8 +15588,9 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
           <span id="geminiKeyStatusText">Sin clave — no se usará como respaldo</span>
         </div>
         <div class="apikey-btns">
-          <button class="btn-sm green" id="geminiKeySave">💾 Guardar</button>
-          <button class="btn-sm danger" id="geminiKeyClear">🗑 Borrar</button>
+          <button class="btn-sm green" id="geminiKeySave">🔌 Guardar y verificar conexión</button>
+          <button class="btn-sm neutral" id="geminiKeyTest">🧪 Probar clave</button>
+          <button class="btn-sm danger" id="geminiKeyClear">🗑 Eliminar clave</button>
         </div>
       </div>
 
@@ -15533,8 +15606,9 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
           <span id="chatgptKeyStatusText">Sin clave — no se usará como respaldo</span>
         </div>
         <div class="apikey-btns">
-          <button class="btn-sm green" id="chatgptKeySave">💾 Guardar</button>
-          <button class="btn-sm danger" id="chatgptKeyClear">🗑 Borrar</button>
+          <button class="btn-sm green" id="chatgptKeySave">🔌 Guardar y verificar conexión</button>
+          <button class="btn-sm neutral" id="chatgptKeyTest">🧪 Probar clave</button>
+          <button class="btn-sm danger" id="chatgptKeyClear">🗑 Eliminar clave</button>
         </div>
       </div>
 
@@ -15550,8 +15624,9 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
           <span id="grokKeyStatusText">Sin clave — no se usará como respaldo</span>
         </div>
         <div class="apikey-btns">
-          <button class="btn-sm green" id="grokKeySave">💾 Guardar</button>
-          <button class="btn-sm danger" id="grokKeyClear">🗑 Borrar</button>
+          <button class="btn-sm green" id="grokKeySave">🔌 Guardar y verificar conexión</button>
+          <button class="btn-sm neutral" id="grokKeyTest">🧪 Probar clave</button>
+          <button class="btn-sm danger" id="grokKeyClear">🗑 Eliminar clave</button>
         </div>
       </div>
 
