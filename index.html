@@ -445,6 +445,7 @@
   .lang-opt { padding: 14px 16px; border-radius: var(--radius-sm); font-size: 15px; cursor: pointer; color: var(--cream); display: flex; align-items: center; gap: 10px; border: 1px solid transparent; transition: background 0.15s, border-color 0.15s; margin-bottom: 6px; background: var(--panel-2); }
   .lang-opt:hover { background: var(--panel-3); border-color: var(--line); }
   .lang-opt.selected { border-color: var(--gold); color: var(--gold-bright); background: var(--gold-dim); }
+  .flag-ico { width: 18px; height: 13px; border-radius: 2px; vertical-align: middle; margin-right: 2px; box-shadow: 0 0 0 1px rgba(255,255,255,0.08); flex-shrink: 0; }
   .lang-sheet-cancel { width: 100%; padding: 14px; border-radius: var(--radius-sm); background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); font-size: 15px; font-family: var(--font-body); cursor: pointer; margin-top: 8px; transition: background 0.15s; }
   .lang-sheet-cancel:hover { background: var(--panel-3); color: var(--cream); }
   .lang-menu-title { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.06em; padding: 6px 12px 4px; }
@@ -2056,20 +2057,20 @@
   <div class="lang-sheet-title">🌐 <span id="langSheetTitle">Idioma de interfaz</span></div>
   <div class="lang-sheet-sub" id="langSheetSub">Selecciona el idioma de la interfaz</div>
   <div class="lang-opt selected" data-lang="auto">✨ Auto (detectar)</div>
-  <div class="lang-opt" data-lang="es">🇪🇸 Español</div>
-  <div class="lang-opt" data-lang="en">🇺🇸 English</div>
-  <div class="lang-opt" data-lang="de">🇩🇪 Deutsch</div>
-  <div class="lang-opt" data-lang="fr">🇫🇷 Français</div>
-  <div class="lang-opt" data-lang="it">🇮🇹 Italiano</div>
-  <div class="lang-opt" data-lang="pt">🇧🇷 Português</div>
-  <div class="lang-opt" data-lang="uk">🇺🇦 Українська</div>
-  <div class="lang-opt" data-lang="ru">🇷🇺 Русский</div>
-  <div class="lang-opt" data-lang="he">🇮🇱 עברית</div>
-  <div class="lang-opt" data-lang="ja">🇯🇵 日本語</div>
-  <div class="lang-opt" data-lang="ko">🇰🇷 한국어</div>
-  <div class="lang-opt" data-lang="zh">🇨🇳 中文</div>
-  <div class="lang-opt" data-lang="hi">🇮🇳 हिन्दी</div>
-  <div class="lang-opt" data-lang="sw">🇰🇪 Kiswahili</div>
+  <div class="lang-opt" data-lang="es"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#AA151B"/><rect y="3.5" width="20" height="7" fill="#F1BF00"/></svg> Español</div>
+  <div class="lang-opt" data-lang="en"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#B22234"/><g fill="#fff"><rect y="1.08" width="20" height="1.08"/><rect y="3.23" width="20" height="1.08"/><rect y="5.38" width="20" height="1.08"/><rect y="7.54" width="20" height="1.08"/><rect y="9.69" width="20" height="1.08"/><rect y="11.85" width="20" height="1.08"/></g><rect width="8" height="7.54" fill="#3C3B6E"/></svg> English</div>
+  <div class="lang-opt" data-lang="de"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="4.67" fill="#000"/><rect y="4.67" width="20" height="4.67" fill="#DD0000"/><rect y="9.33" width="20" height="4.67" fill="#FFCE00"/></svg> Deutsch</div>
+  <div class="lang-opt" data-lang="fr"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="6.67" height="14" fill="#0055A4"/><rect x="6.67" width="6.67" height="14" fill="#fff"/><rect x="13.33" width="6.67" height="14" fill="#EF4135"/></svg> Français</div>
+  <div class="lang-opt" data-lang="it"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="6.67" height="14" fill="#009246"/><rect x="6.67" width="6.67" height="14" fill="#fff"/><rect x="13.33" width="6.67" height="14" fill="#CE2B37"/></svg> Italiano</div>
+  <div class="lang-opt" data-lang="pt"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#009739"/><polygon points="10,2 18,7 10,12 2,7" fill="#FEDD00"/><circle cx="10" cy="7" r="3" fill="#012169"/></svg> Português</div>
+  <div class="lang-opt" data-lang="uk"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="7" fill="#005BBB"/><rect y="7" width="20" height="7" fill="#FFD500"/></svg> Українська</div>
+  <div class="lang-opt" data-lang="ru"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="4.67" fill="#fff"/><rect y="4.67" width="20" height="4.67" fill="#0039A6"/><rect y="9.33" width="20" height="4.67" fill="#D52B1E"/></svg> Русский</div>
+  <div class="lang-opt" data-lang="he"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><rect y="1.5" width="20" height="1.8" fill="#0038B8"/><rect y="10.7" width="20" height="1.8" fill="#0038B8"/><g fill="none" stroke="#0038B8" stroke-width="0.6"><polygon points="10,4.5 12.3,8.5 7.7,8.5"/><polygon points="10,9.5 7.7,5.5 12.3,5.5"/></g></svg> עברית</div>
+  <div class="lang-opt" data-lang="ja"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><circle cx="10" cy="7" r="4" fill="#BC002D"/></svg> 日本語</div>
+  <div class="lang-opt" data-lang="ko"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><path d="M10 3.5 A3.5 3.5 0 0 1 10 10.5 A1.75 1.75 0 0 1 10 7 A1.75 1.75 0 0 0 10 3.5 Z" fill="#CD2E3A"/><path d="M10 10.5 A3.5 3.5 0 0 1 10 3.5 A1.75 1.75 0 0 1 10 7 A1.75 1.75 0 0 0 10 10.5 Z" fill="#0047A0"/></svg> 한국어</div>
+  <div class="lang-opt" data-lang="zh"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#DE2910"/><polygon points="4,2 4.6,3.8 6.5,3.8 4.95,4.9 5.55,6.7 4,5.6 2.45,6.7 3.05,4.9 1.5,3.8 3.4,3.8" fill="#FFDE00"/></svg> 中文</div>
+  <div class="lang-opt" data-lang="hi"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="4.67" fill="#FF9933"/><rect y="4.67" width="20" height="4.67" fill="#fff"/><rect y="9.33" width="20" height="4.67" fill="#138808"/><circle cx="10" cy="7" r="1.6" fill="none" stroke="#000080" stroke-width="0.3"/></svg> हिन्दी</div>
+  <div class="lang-opt" data-lang="sw"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><rect y="0.9" width="20" height="3.2" fill="#000"/><rect y="5.4" width="20" height="3.2" fill="#BB0000"/><rect y="9.9" width="20" height="3.2" fill="#006600"/></svg> Kiswahili</div>
   <button class="lang-sheet-cancel" id="langSheetCancel">Cancelar</button>
 </div>
 
@@ -15541,20 +15542,20 @@ Responde en español, directo, accionable. Máximo 120 palabras.`;
       <p style="font-size:12px;color:var(--muted);margin:-4px 0 10px;">Idioma en el que la IA redacta sus respuestas. No afecta el idioma de los menús de la app (eso se cambia con el botón 🌐 de la pantalla principal).</p>
       <div class="settings-chips" id="settingsLangChips">
         <button class="settings-chip active" data-lang="auto">🪄 Auto</button>
-        <button class="settings-chip" data-lang="es">🇪🇸 Español</button>
-        <button class="settings-chip" data-lang="en">🇺🇸 English</button>
-        <button class="settings-chip" data-lang="pt">🇧🇷 Português</button>
-        <button class="settings-chip" data-lang="fr">🇫🇷 Français</button>
-        <button class="settings-chip" data-lang="de">🇩🇪 Deutsch</button>
-        <button class="settings-chip" data-lang="it">🇮🇹 Italiano</button>
-        <button class="settings-chip" data-lang="uk">🇺🇦 Українська</button>
-        <button class="settings-chip" data-lang="ru">🇷🇺 Русский</button>
-        <button class="settings-chip" data-lang="he">🇮🇱 עברית</button>
-        <button class="settings-chip" data-lang="ja">🇯🇵 日本語</button>
-        <button class="settings-chip" data-lang="ko">🇰🇷 한국어</button>
-        <button class="settings-chip" data-lang="zh">🇨🇳 中文</button>
-        <button class="settings-chip" data-lang="hi">🇮🇳 हिन्दी</button>
-        <button class="settings-chip" data-lang="sw">🇰🇪 Kiswahili</button>
+        <button class="settings-chip" data-lang="es"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#AA151B"/><rect y="3.5" width="20" height="7" fill="#F1BF00"/></svg> Español</button>
+        <button class="settings-chip" data-lang="en"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#B22234"/><g fill="#fff"><rect y="1.08" width="20" height="1.08"/><rect y="3.23" width="20" height="1.08"/><rect y="5.38" width="20" height="1.08"/><rect y="7.54" width="20" height="1.08"/><rect y="9.69" width="20" height="1.08"/><rect y="11.85" width="20" height="1.08"/></g><rect width="8" height="7.54" fill="#3C3B6E"/></svg> English</button>
+        <button class="settings-chip" data-lang="pt"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#009739"/><polygon points="10,2 18,7 10,12 2,7" fill="#FEDD00"/><circle cx="10" cy="7" r="3" fill="#012169"/></svg> Português</button>
+        <button class="settings-chip" data-lang="fr"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="6.67" height="14" fill="#0055A4"/><rect x="6.67" width="6.67" height="14" fill="#fff"/><rect x="13.33" width="6.67" height="14" fill="#EF4135"/></svg> Français</button>
+        <button class="settings-chip" data-lang="de"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="4.67" fill="#000"/><rect y="4.67" width="20" height="4.67" fill="#DD0000"/><rect y="9.33" width="20" height="4.67" fill="#FFCE00"/></svg> Deutsch</button>
+        <button class="settings-chip" data-lang="it"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="6.67" height="14" fill="#009246"/><rect x="6.67" width="6.67" height="14" fill="#fff"/><rect x="13.33" width="6.67" height="14" fill="#CE2B37"/></svg> Italiano</button>
+        <button class="settings-chip" data-lang="uk"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="7" fill="#005BBB"/><rect y="7" width="20" height="7" fill="#FFD500"/></svg> Українська</button>
+        <button class="settings-chip" data-lang="ru"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="4.67" fill="#fff"/><rect y="4.67" width="20" height="4.67" fill="#0039A6"/><rect y="9.33" width="20" height="4.67" fill="#D52B1E"/></svg> Русский</button>
+        <button class="settings-chip" data-lang="he"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><rect y="1.5" width="20" height="1.8" fill="#0038B8"/><rect y="10.7" width="20" height="1.8" fill="#0038B8"/><g fill="none" stroke="#0038B8" stroke-width="0.6"><polygon points="10,4.5 12.3,8.5 7.7,8.5"/><polygon points="10,9.5 7.7,5.5 12.3,5.5"/></g></svg> עברית</button>
+        <button class="settings-chip" data-lang="ja"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><circle cx="10" cy="7" r="4" fill="#BC002D"/></svg> 日本語</button>
+        <button class="settings-chip" data-lang="ko"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><path d="M10 3.5 A3.5 3.5 0 0 1 10 10.5 A1.75 1.75 0 0 1 10 7 A1.75 1.75 0 0 0 10 3.5 Z" fill="#CD2E3A"/><path d="M10 10.5 A3.5 3.5 0 0 1 10 3.5 A1.75 1.75 0 0 1 10 7 A1.75 1.75 0 0 0 10 10.5 Z" fill="#0047A0"/></svg> 한국어</button>
+        <button class="settings-chip" data-lang="zh"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#DE2910"/><polygon points="4,2 4.6,3.8 6.5,3.8 4.95,4.9 5.55,6.7 4,5.6 2.45,6.7 3.05,4.9 1.5,3.8 3.4,3.8" fill="#FFDE00"/></svg> 中文</button>
+        <button class="settings-chip" data-lang="hi"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="4.67" fill="#FF9933"/><rect y="4.67" width="20" height="4.67" fill="#fff"/><rect y="9.33" width="20" height="4.67" fill="#138808"/><circle cx="10" cy="7" r="1.6" fill="none" stroke="#000080" stroke-width="0.3"/></svg> हिन्दी</button>
+        <button class="settings-chip" data-lang="sw"><svg class="flag-ico" viewBox="0 0 20 14" xmlns="http://www.w3.org/2000/svg"><rect width="20" height="14" fill="#fff"/><rect y="0.9" width="20" height="3.2" fill="#000"/><rect y="5.4" width="20" height="3.2" fill="#BB0000"/><rect y="9.9" width="20" height="3.2" fill="#006600"/></svg> Kiswahili</button>
       </div>
     </div>
     <div class="settings-section">
