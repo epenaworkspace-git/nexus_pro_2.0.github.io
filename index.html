@@ -2006,13 +2006,6 @@
    ══════════════════════════════════════════════════════ */
 
 /* ══════════════════════════════════════════════════════
-   ZOOM GENERAL — SOLO VISUAL, TODA LA APP, TODOS LOS TAMAÑOS
-   Agranda letras, botones, campos, íconos y gráficos por igual.
-   No modifica funcionalidad, lógica ni comportamiento.
-   ══════════════════════════════════════════════════════ */
-body { zoom: 1.6; }
-
-/* ══════════════════════════════════════════════════════
    AJUSTES DE PRESENTACIÓN PARA ESCRITORIO — SOLO VISUAL
    No modifica funcionalidad, lógica ni comportamiento.
    No afecta la vista móvil (min-width: 901px).
@@ -2023,6 +2016,10 @@ body { zoom: 1.6; }
      ancho, para que ninguna parte se vea más angosta que el resto. */
   .wrap, .page-body, .app-wrap, .nav-bottom { max-width: 952px; }
   #sec-7 { max-width: 952px !important; }
+
+  /* Zoom uniforme del 20%: agranda letras, botones, campos, íconos y
+     gráficos por igual en toda la aplicación, sin tocar la vista móvil. */
+  body { zoom: 1.2; }
 }
 </style>
 
@@ -6963,8 +6960,8 @@ async function callClaudeAnalysis(text){
     "productos_mencionados":["lista de productos, bienes o servicios mencionados; vacío si ninguno"],
     "aprobacion_producto":{"presente":true|false,"score":0-100,"nivel":"desaprobacion|parcial|alta","frases_sustento":["frases del texto que sustentan la valoración"],"analisis":"texto de 2-3 frases explicando el nivel de aprobación detectado"},
     "interes_compra":{"presente":true|false,"score":0-100,"nivel":"bajo|moderado|alto","frases_sustento":["expresiones que denotan curiosidad, preguntas, intención o barreras"],"analisis":"texto de 2-3 frases sobre la intención o disposición de compra detectada"},
-    "excusas":{"score":0-100,"nivel":"sin_indicios|leve|alta","frases_detectadas":["frases o construcciones clasificadas como excusas"],"diferenciacion":"texto explicando cómo se diferencian de objeciones reales","analisis":"texto de 2-3 frases sobre el uso de justificaciones o evasivas"},
-    "mentiras":{"score":0-100,"nivel":"sin_indicios|leve|alta","contradicciones":["contradicciones o inconsistencias detectadas"],"criterios":"texto explicando los criterios lingüísticos usados para la valoración","analisis":"texto de 2-3 frases sobre la probabilidad de afirmaciones falsas"},
+    "excusas":{"score":0-100,"nivel":"sin_indicios|leve|alta","frases_detectadas":["frases o construcciones clasificadas como excusas"],"diferenciacion":"texto explicando cómo se diferencian de objeciones reales","analisis":"texto de 2-3 frases sobre el uso de justificaciones o evasivas"} — OBLIGATORIO: analiza este campo siempre, incluso si el texto parece directo; si no hay evidencia clara usa score bajo y nivel "sin_indicios" con analisis explicando por qué, pero nunca omitas el campo ni lo dejes vacío,
+    "mentiras":{"score":0-100,"nivel":"sin_indicios|leve|alta","contradicciones":["contradicciones o inconsistencias detectadas"],"criterios":"texto explicando los criterios lingüísticos usados para la valoración","analisis":"texto de 2-3 frases sobre la probabilidad de afirmaciones falsas"} — OBLIGATORIO: evalúa activamente contradicciones internas, cambios de versión, afirmaciones inverosímiles o desproporcionadas; si no encuentras ninguna, usa score bajo y nivel "sin_indicios" con analisis explicando por qué, pero nunca omitas el campo ni lo dejes vacío,
     "intencion_compra_palabras":{"palabras_duda":["lista de palabras/frases del texto que denotan duda: tal vez, quizás, no sé, pero, pensaré, veo, etc."],"palabras_compromiso":["lista de palabras/frases del texto que denotan compromiso: sí, quiero, cuándo, cómo, necesito, vamos, listo, etc."],"total_duda":0,"total_compromiso":0,"ratio_compromiso":0.0,"interpretacion":"texto de 1-2 frases sobre la inclinación del cliente basada en la relación entre ambos tipos de palabras"},
     "objeciones_clasificadas":{"total":0,"categorias":{"precio":0,"garantia":0,"tiempo_entrega":0,"caracteristicas_producto":0,"forma_pago":0,"ubicacion":0,"condiciones_servicio":0,"otras":0},"peso_relativo":[{"categoria":"nombre_categoria","peso_pct":0,"expresiones":["ejemplos de objeciones del texto para esta categoría"]}],"analisis":"texto de 2-3 frases sobre el patrón general de objeciones y cuál requiere más atención"},
     "tono_emocional":{"escala":"desconfiado|esceptico|neutral|receptivo|entusiasta","posicion_escala":1-5,"descripcion":"texto de 2-3 frases explicando el tono emocional detectado basado en patrones lingüísticos, adjetivos y expresiones de conformidad o rechazo"},
@@ -6973,8 +6970,9 @@ async function callClaudeAnalysis(text){
     "complejidad_cierre":{"puntuacion":1-10,"interpretacion":"texto de 1 frase: 1=muy fácil, 10=requiere mayor trabajo y negociación","factores":{"objeciones_detectadas":número,"tipo_objeciones":"text","tono_emocional_impacto":"texto","dudas_sin_resolver":número},"recomendacion":"texto con estrategia sugerida para avanzar el cierre"}
   }
 }
+IMPORTANTE: Responde con el JSON COMPLETO, incluyendo TODOS los campos de "indicadores" (especialmente "excusas" y "mentiras") sin excepción y sin cortar la respuesta a la mitad. No omitas ningún campo aunque su valor sea bajo o "sin_indicios".
 Texto: """${text}"""`;
-  return callAIConFallback(prompt,10000);
+  return callAIConFallback(prompt,16000);
 }
 
 document.getElementById('analyzeBtn').addEventListener('click',async()=>{
@@ -7644,6 +7642,23 @@ function generateProPdf(){
   const resumen=ai.resumen||'';
   const textoOrig=(d.originalText||'').slice(0,600)+((d.originalText||'').length>600?'…':'');
 
+  // Informe Ejecutivo (IA) — mismo contenido que se muestra en pantalla en la pestaña "Pro".
+  // Se incluye aquí para que el PDF y la vista en pantalla siempre coincidan.
+  function formatProReportForPdf(text){
+    let h=escHtml(text);
+    h=h.replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>');
+    h=h.replace(/^###\s(.+)$/gm,'<div style="font-weight:700;font-size:13px;color:#111;margin:10px 0 4px;">$1</div>');
+    h=h.replace(/^##\s(.+)$/gm,'<div style="font-weight:700;font-size:14px;color:#b91c1c;margin:14px 0 6px;">$1</div>');
+    h=h.replace(/^#\s(.+)$/gm,'<div style="font-weight:700;font-size:15px;color:#b91c1c;margin:14px 0 6px;">$1</div>');
+    h=h.replace(/^[-•]\s(.+)$/gm,'<div style="margin:2px 0 2px 14px;">▸ $1</div>');
+    h=h.replace(/^(\d+)\.\s(.+)$/gm,'<div style="margin:2px 0 2px 14px;">$1. $2</div>');
+    h=h.replace(/\n/g,'<br>');
+    return h;
+  }
+  const informeHtml = proReportText
+    ? section('📋 Informe Ejecutivo (IA)','<div style="font-size:13px;line-height:1.7;color:#333;">'+formatProReportForPdf(proReportText)+'</div>')
+    : section('📋 Informe Ejecutivo (IA)','<div style="font-size:13px;color:#888;font-style:italic;">Aún no se ha generado el informe ejecutivo narrativo para este análisis. Ve a la pestaña "Pro" y presiona "Generar Informe Ejecutivo" antes de exportar para incluirlo aquí.</div>');
+
   const html='<!DOCTYPE html><html><head><meta charset="UTF-8">'
     +'<title>Análisis Pro — '+dateStr+'</title>'
     +'<style>body{font-family:Arial,sans-serif;color:#111;padding:32px;max-width:800px;margin:0 auto;}h1{color:#b91c1c;font-size:20px;margin-bottom:4px;}@media print{body{padding:16px;}}</style>'
@@ -7651,6 +7666,7 @@ function generateProPdf(){
     +'<h1>📊 Análisis de Texto Pro</h1>'
     +'<div style="font-size:12px;color:#666;margin-bottom:24px;">Generado el '+dateStr+'</div>'
     +(resumen?section('📝 Resumen','<p style="font-size:14px;line-height:1.7;color:#333;">'+resumen+'</p>'):'')
+    +informeHtml
     +section('📄 Texto analizado','<div style="background:#f5f5f5;border-radius:6px;padding:12px;font-size:13px;line-height:1.7;color:#333;">'+textoOrig+'</div>')
     +section('📊 Estadísticas',statsHtml)
     +(sentiHtml?section('🎭 Sentimiento',sentiHtml):'')
