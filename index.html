@@ -3258,15 +3258,29 @@
 //  • Un listener onSnapshot mantiene sincronizados varios dispositivos/pestañas
 //    abiertas a la vez, ignorando los ecos de las propias escrituras locales.
 
-const firebaseConfig = {
-  apiKey: "AIzaSyATTrYMqivDJGLhQYDDjEqLCyv-YEMSK2A",
-  authDomain: "nexus-pro-plus.firebaseapp.com",
-  projectId: "nexus-pro-plus",
-  storageBucket: "nexus-pro-plus.firebasestorage.app",
-  messagingSenderId: "5726048688",
-  appId: "1:5726048688:web:f51184138fe76b3d008675",
-  measurementId: "G-8M0LN04X2C"
-};
+const firebaseConfig = (function(){
+  var LS_KEY = 'fbcfg_nexus_pro_2_0';
+  var saved = null;
+  try { saved = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); } catch(e) { saved = null; }
+  if (saved && saved.apiKey) return saved;
+  for (var intento = 0; intento < 3; intento++) {
+    var pasted = window.prompt('Configuracion de Firebase para Nexus Pro 2.0 (solo la primera vez en este dispositivo).\nPega aqui el JSON de configuracion (debe empezar con { y las comillas en los nombres de los campos):');
+    if (!pasted) break;
+    try {
+      var cfg = JSON.parse(pasted);
+      if (!cfg.apiKey) {
+        window.alert('Ese texto es JSON valido pero le falta el campo "apiKey". Revisa que copiaste el bloque completo e intenta de nuevo.');
+        continue;
+      }
+      localStorage.setItem(LS_KEY, JSON.stringify(cfg));
+      return cfg;
+    } catch(e) {
+      window.alert('El texto pegado no es un JSON valido. Debe verse asi (con comillas en TODOS los nombres de campo):\n{"apiKey":"...","authDomain":"...","projectId":"...","storageBucket":"...","messagingSenderId":"...","appId":"..."}\n\nIntenta de nuevo.');
+    }
+  }
+  window.alert('No se configuro Firebase para Nexus Pro 2.0. La app seguira funcionando localmente, sin sincronizacion, hasta que recargues la pagina y lo captures correctamente.');
+  return { apiKey:'', authDomain:'', projectId:'', storageBucket:'', messagingSenderId:'', appId:'' };
+})();
 
 let fbAuth=null, fbDb=null, fbUser=null, fbUserDocRef=null, fbCloudReady=false;
 let fbSyncTimer=null, fbApplyingRemote=false;
@@ -3339,6 +3353,11 @@ function initFirebaseCloud(){
     renderAccountUI();
     return;
   }
+  if(!firebaseConfig || !firebaseConfig.apiKey){
+    showAuthGate();
+    gateMsg('Falta la configuración de Firebase. Recarga la página para volver a capturarla.', true);
+    return;
+  }
   try{
     firebase.initializeApp(firebaseConfig);
     try{ firebase.analytics(); }catch(e){}
@@ -3349,7 +3368,7 @@ function initFirebaseCloud(){
       console.warn('[Nube] Persistencia offline no disponible:', err.code||err);
     });
     initAuthGate();
-    gateCompleteEmailLinkIfNeeded().finally(()=>{
+    gateCompleteEmailLinkIfNeeded().catch(()=>{}).finally(()=>{
       fbAuth.onAuthStateChanged(async (user)=>{
         if(user){
           hideAuthGate();
@@ -3360,14 +3379,17 @@ function initFirebaseCloud(){
           fbCloudReady = true;
           renderAccountUI();
         } else {
-          // Ya no se crea sesión anónima automática: en navegador real se exige login (Google, email+contraseña o enlace por correo)
           fbCloudReady = false;
           showAuthGate();
         }
+      }, (err)=>{
+        showAuthGate();
+        gateMsg('Error de sesión: '+(err.message||err.code||err), true);
       });
     });
   }catch(e){
-    // Esto sí es un error real (config, cuota, reglas, etc.), no un bloqueo de entorno
+    showAuthGate();
+    gateMsg('No se pudo inicializar Firebase: '+(e.message||e), true);
     console.warn('[Nube] Firebase falló al inicializar:', e);
   }
 }
@@ -4874,14 +4896,53 @@ document.querySelectorAll('.mode-tab').forEach(btn=>{
     const wrap=document.querySelector('.wrap');
     if(wrap) wrap.style.paddingBottom=currentMode==='comercial'?'4px':(currentMode==='tutorial'||currentMode==='presentacion'||currentMode==='emocional'||currentMode==='pnl')?'0':'100px';
     if(currentMode==='comercial') { /* VentaMinds PRO — autoinicia con window.onload */ }
-    // Ocultar topbar global en modo Ventas (tiene su propio header con botón Nueva)
+    // Topbar global visible en todos los modos, incluido Ventas
     const globalTopbar = document.querySelector('.topbar');
-    if(globalTopbar) globalTopbar.style.display = currentMode === 'comercial' ? 'none' : '';
+    if(globalTopbar) globalTopbar.style.display = '';
     if(currentMode==='tutorial') tutInit();
     if(currentMode==='emocional') ieInit();
     if(currentMode==='pnl') pnlInit();
   });
 });
+
+// ─── Drag-to-scroll con mouse para carruseles (cursor "manita") ─────────────
+(function(){
+  const selectors = ['.mode-toggle-bar','.history-row','.tabs','.quick-tone-bar','.cat-carousel','.tut-cats','.stepper','.vm-kpi-scroll','.tabs-bar','.mindmap-wrap'];
+  function initDragScroll(el){
+    if(!el || el.dataset.dragInit) return;
+    el.dataset.dragInit = '1';
+    let isDown=false, startX=0, scrollLeft=0, moved=false;
+    el.style.cursor='grab';
+    el.addEventListener('mousedown', e=>{
+      isDown=true; moved=false;
+      el.style.cursor='grabbing';
+      startX = e.pageX - el.offsetLeft;
+      scrollLeft = el.scrollLeft;
+    });
+    const stopDrag=()=>{ if(isDown){ isDown=false; el.style.cursor='grab'; } };
+    el.addEventListener('mouseleave', stopDrag);
+    el.addEventListener('mouseup', stopDrag);
+    el.addEventListener('mousemove', e=>{
+      if(!isDown) return;
+      e.preventDefault();
+      const x = e.pageX - el.offsetLeft;
+      const walk = x - startX;
+      if(Math.abs(walk) > 3) moved = true;
+      el.scrollLeft = scrollLeft - walk;
+    });
+    // Evita que el "arrastre" dispare accidentalmente un click en pills/tabs
+    el.addEventListener('click', e=>{
+      if(moved){ e.stopPropagation(); e.preventDefault(); }
+    }, true);
+  }
+  function initAll(){
+    document.querySelectorAll(selectors.join(',')).forEach(initDragScroll);
+  }
+  document.addEventListener('DOMContentLoaded', initAll);
+  // Reintenta por si hay carruseles que se generan dinámicamente tras la carga inicial
+  setTimeout(initAll, 800);
+  setTimeout(initAll, 2000);
+})();
 
 // ─── File Attach ─────────────────────────────────────────────────────────────
 document.getElementById('fileInput').addEventListener('change',function(){
