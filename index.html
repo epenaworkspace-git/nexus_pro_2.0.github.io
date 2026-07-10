@@ -9369,11 +9369,6 @@ window.onload = () => {
   renderPosventa();
   renderTimeline();
   updateNav();
-  // Ocultar topbar global si el modo inicial es Ventas
-  if (currentMode === 'comercial') {
-    const gt = document.querySelector('.topbar');
-    if (gt) gt.style.display = 'none';
-  }
 };
 
 function renderSeniales() {
